@@ -1,0 +1,50 @@
+--- a/opencv_build/modules/videoio/src/cap_v4l.cpp
++++ b/opencv_build/modules/videoio/src/cap_v4l.cpp
+@@ -684,19 +684,37 @@
+ 		if (form.fmt.pix.sizeimage < min)
+ 		    form.fmt.pix.sizeimage = min;
+ 	} else if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+-		min = form.fmt.pix_mp.width * 2;
+-
+-		if (form.fmt.pix_mp.plane_fmt[0].bytesperline < min)
+-		    form.fmt.pix_mp.plane_fmt[0].bytesperline = min;
+-
+-		min = form.fmt.pix_mp.plane_fmt[0].bytesperline * form.fmt.pix_mp.height;
+-
+-		if (form.fmt.pix_mp.plane_fmt[0].sizeimage < min)
+-		    form.fmt.pix_mp.plane_fmt[0].sizeimage = min;
+-	}
++        if (form.fmt.pix_mp.num_planes != 1) {
++            fprintf(stderr, "V4L2: this backend requires a contiguous single memory plane\n");
++            return false;
++        }
++    }
+ 
+     if (!requestBuffers())
+         return false;
++
++    if (form.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
++        (palette == V4L2_PIX_FMT_NV21 || palette == V4L2_PIX_FMT_NV12)) {
++        // sunxi-vin updates bytesperline/payload in queue_setup (REQBUFS),
++        // not S_FMT. G_FMT before REQBUFS can still describe the last stream.
++        if (!tryIoctl(VIDIOC_G_FMT, &form))
++            return false;
++        const v4l2_pix_format_mplane& pix = form.fmt.pix_mp;
++        const unsigned int stride = pix.plane_fmt[0].bytesperline;
++        const bool sunxi = strcmp(reinterpret_cast<const char*>(capability.driver),
++                                  "sunxi-vin") == 0;
++        // This SDK uses depth[0]=12 for contiguous NV12/NV21, so the reported
++        // value is 1.5*width, not the Y row stride. DMA aligns width/height to 16.
++        const bool legacyStride = sunxi && stride == pix.width * 3 / 2;
++        if (pix.num_planes != 1 || (pix.width & 1) || (pix.height & 1) ||
++            (sunxi && ((pix.width & 15) || (pix.height & 15))) ||
++            (stride != 0 && stride != pix.width && !legacyStride) ||
++            pix.plane_fmt[0].sizeimage < static_cast<size_t>(pix.width) * pix.height * 3 / 2) {
++            fprintf(stderr, "V4L2: unsupported NV12/NV21 layout: %ux%u stride=%u size=%u planes=%u\n",
++                    pix.width, pix.height, stride, pix.plane_fmt[0].sizeimage, pix.num_planes);
++            return false;
++        }
++    }
+ 
+     if (!createBuffers()) {
+         /* free capture, and returns an error code */

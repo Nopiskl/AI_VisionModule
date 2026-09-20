@@ -8,9 +8,9 @@ PKG_RELEASE:=1
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
 define Package/$(PKG_NAME)
-  SUBMENU:=NPU
+  SUBMENU:=add_patch
   SECTION:=utils
-  CATEGORY:=Allwinner
+  CATEGORY:=nopiskl_apps
   TITLE:=resnet demo used to test npu 
   DEPENDS:=+libstdcpp +viplite-driver +vpm_run
 endef
@@ -33,11 +33,11 @@ define Package/$(PKG_NAME)/install
 endef
 
 define Package/$(PKG_NAME)-model
-  SUBMENU:=NPU
+  SUBMENU:=add_patch
   SECTION:=utils
-  CATEGORY:=Allwinner
+  CATEGORY:=nopiskl_apps
   TITLE:=resnet demo model
-  DEPENDS:=@resnetvpm
+  DEPENDS:=+resnetvpm
 endef
 
 define Package/$(PKG_NAME)-model/install

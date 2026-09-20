@@ -228,21 +228,19 @@ private:
     }
 
     static YoloV8Processor createYoloV8Processor(VideoObjectDetectionPipeline::Config& config) {
-        YoloV8Processor::Config yoloV8ProcessorConfig = {
-            .classes = std::move(config.detectionClasses),
-            .imgSize = config.inputImgSize,
-            .rectConfidenceThreshold = config.rectConfidenceThreshold,
-            .iouThreshold = config.iouThreshold
-        };
+        YoloV8Processor::Config yoloV8ProcessorConfig;
+        yoloV8ProcessorConfig.classes = std::move(config.detectionClasses);
+        yoloV8ProcessorConfig.imgSize = config.inputImgSize;
+        yoloV8ProcessorConfig.rectConfidenceThreshold = config.rectConfidenceThreshold;
+        yoloV8ProcessorConfig.iouThreshold = config.iouThreshold;
         return YoloV8Processor(yoloV8ProcessorConfig);
     }
 
     static NeuralNetworkRuntime createNeuralNetworkRuntime(VideoObjectDetectionPipeline::Config& config) {
-        NeuralNetworkRuntime::Config nnRuntimeConfig = {
-            .isAutoInit = false,
-            .modelFilePath = config.modelFilePath,
-            .memSize = config.nnRuntimeMemSize
-        };
+        NeuralNetworkRuntime::Config nnRuntimeConfig;
+        nnRuntimeConfig.isAutoInit = false;
+        nnRuntimeConfig.modelFilePath = config.modelFilePath;
+        nnRuntimeConfig.memSize = config.nnRuntimeMemSize;
 
         return NeuralNetworkRuntime(nnRuntimeConfig);
     }
@@ -335,8 +333,8 @@ VideoObjectDetectionPipeline::~VideoObjectDetectionPipeline() = default;
 
 void VideoObjectDetectionPipeline::start() {
     _pImpl->start();
-} 
+}
 
 void VideoObjectDetectionPipeline::stop() {
     _pImpl->stop();
-} 
+}

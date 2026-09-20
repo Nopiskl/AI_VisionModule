@@ -4,6 +4,8 @@
 #include <csignal>
 #include <stdexcept>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
 // #include <iomanip>
 
 #include <fcntl.h>
@@ -89,9 +91,8 @@ int main(int argc, char *argv[])
 
     try
     {
-        NeuralNetworkRuntime::Config nnRuntimeConfig = {
-            .modelFilePath = (const char *)argv[1],
-        };
+        NeuralNetworkRuntime::Config nnRuntimeConfig;
+        nnRuntimeConfig.modelFilePath = argv[1];
 
         if (argc > 3) {
             nnRuntimeConfig.memSize = static_cast<unsigned int>(std::stoul(argv[3]));
@@ -99,10 +100,9 @@ int main(int argc, char *argv[])
 
         auto nnRuntime = NeuralNetworkRuntime(nnRuntimeConfig);
 
-        YoloV8Processor::Config yoloV8ProcessorConfig = {
-            .classes = std::move(classes),
-            .imgSize = {320, 320},
-        };
+        YoloV8Processor::Config yoloV8ProcessorConfig;
+        yoloV8ProcessorConfig.classes = std::move(classes);
+        yoloV8ProcessorConfig.imgSize = cv::Size(320, 320);
         auto yoloV8Processor = YoloV8Processor(yoloV8ProcessorConfig);
 
         cv::VideoCapture videoCapture;

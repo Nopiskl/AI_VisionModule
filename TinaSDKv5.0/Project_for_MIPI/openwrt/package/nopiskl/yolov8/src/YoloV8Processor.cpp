@@ -153,9 +153,9 @@ public:
             int idx = nmsResult[i];
 
             Detection detection = {
-                .classId = classIds[idx],
-                .confidence = confidences[idx],
-                .box = boxes[idx]
+                classIds[idx],
+                confidences[idx],
+                boxes[idx]
             };
 
             detections[i] = detection;

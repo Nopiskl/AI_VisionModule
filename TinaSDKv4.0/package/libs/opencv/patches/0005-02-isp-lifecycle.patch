@@ -1,0 +1,72 @@
+--- a/opencv_build/modules/videoio/src/cap_v4l.cpp
++++ b/opencv_build/modules/videoio/src/cap_v4l.cpp
+@@ -2054,34 +2054,43 @@
+ {
+     if (!isOpened())
+         return !startStream;
+-
+-	if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE)
+-		type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-	else if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+-		type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+-
++    type = (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE)
++        ? V4L2_BUF_TYPE_VIDEO_CAPTURE : V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+ #ifdef __USE_VIN_ISP__
+-	RawSensor = RAWSensor();
+-
+-	if (startStream && RawSensor) {
+-		int VideoIndex = -1;
+-
+-		sscanf(deviceName.c_str(), "/dev/video%d", &VideoIndex);
+-
+-		IspPort = CreateAWIspApi();
+-		IspId = -1;
+-		IspId = IspPort->ispGetIspId(VideoIndex);
+-		if (IspId >= 0)
+-			IspPort->ispStart(IspId);
+-	} else if (RawSensor && IspId >= 0 && IspPort) {
+-		IspPort->ispStop(IspId);
+-		DestroyAWIspApi(IspPort);
+-		IspPort = NULL;
+-		IspId = -1;
+-	}
++    if (startStream && IspPort == NULL && RAWSensor()) {
++        int videoIndex = -1;
++        if (sscanf(deviceName.c_str(), "/dev/video%d", &videoIndex) != 1)
++            return false;
++        IspPort = CreateAWIspApi();
++        if (!IspPort)
++            return false;
++        if (IspPort->ispApiInit() != 0) {
++            DestroyAWIspApi(IspPort);
++            IspPort = NULL;
++            return false;
++        }
++        IspId = IspPort->ispGetIspId(videoIndex);
++        if (IspId < 0 || IspPort->ispStart(IspId) != 0) {
++            IspPort->ispApiUnInit();
++            DestroyAWIspApi(IspPort);
++            IspPort = NULL;
++            IspId = -1;
++            return false;
++        }
++    }
+ #endif
+-
+-    return tryIoctl(startStream ? VIDIOC_STREAMON : VIDIOC_STREAMOFF, &type);
++    const bool result = tryIoctl(startStream ? VIDIOC_STREAMON : VIDIOC_STREAMOFF, &type);
++#ifdef __USE_VIN_ISP__
++    if ((!startStream || !result) && IspPort) {
++        if (IspId >= 0)
++            IspPort->ispStop(IspId);
++        IspPort->ispApiUnInit();
++        DestroyAWIspApi(IspPort);
++        IspPort = NULL;
++        IspId = -1;
++    }
++#endif
++    return result;
+ }
+ 
+ IplImage *CvCaptureCAM_V4L::retrieveFrame(int)

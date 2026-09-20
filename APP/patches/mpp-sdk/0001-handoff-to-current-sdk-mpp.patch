@@ -1,0 +1,1390 @@
+--- a/cmake/SunxiMpp.cmake
++++ b/cmake/SunxiMpp.cmake
+@@ -56,6 +56,12 @@
+         list(APPEND archives ${SUNXI_MPP_${group_upper}_FILES})
+     endforeach()
+ 
++    # libaw_mpp's configured component registry references this SDK closure.
++    list(APPEND archives ${SUNXI_MPP_CORE_FILES} ${SUNXI_MPP_VI_FILES}
++        ${SUNXI_MPP_VO_FILES} ${SUNXI_MPP_VENC_FILES} ${SUNXI_MPP_MUXER_FILES}
++        ${SUNXI_MPP_DEMUX_FILES} ${SUNXI_MPP_VDEC_FILES})
++    list(REMOVE_DUPLICATES archives)
++
+     add_library("sunxi_mpp_${profile}" INTERFACE)
+     add_library("sunxi_mpp::${profile}" ALIAS "sunxi_mpp_${profile}")
+     target_link_libraries("sunxi_mpp_${profile}" INTERFACE
+@@ -92,27 +98,59 @@
+             "Run Application/tools/fetch_sunxi_mpp.sh first.")
+     endif()
+ 
++    if(NOT EXISTS "${MPP_ROOT}/SDK_SOURCE.json" OR
++       NOT EXISTS "${MPP_ROOT}/SDK_FEATURES.cmake")
++        message(FATAL_ERROR
++            "Import the current Tina SDK with tools/import_sunxi_mpp.py; "
++            "the legacy GitHub binary bundle is not ABI compatible.")
++    endif()
++    file(SHA256 "${MPP_MANIFEST}" expected_manifest_sha)
++    file(SHA256 "${MPP_ROOT}/BUNDLE_MANIFEST" imported_manifest_sha)
++    if(NOT expected_manifest_sha STREQUAL imported_manifest_sha)
++        message(FATAL_ERROR "Bundle manifest changed; reimport into a new bundle directory")
++    endif()
++    include("${MPP_ROOT}/SDK_FEATURES.cmake")
+     _sunxi_mpp_collect_manifest("${MPP_MANIFEST}" "${MPP_ROOT}")
+ 
+-    file(GLOB_RECURSE sunxi_mpp_include_entries
+-        CONFIGURE_DEPENDS
+-        LIST_DIRECTORIES true
+-        "${MPP_ROOT}/include/*")
+-    set(sunxi_mpp_include_dirs "${MPP_ROOT}/include")
+-    foreach(entry IN LISTS sunxi_mpp_include_entries)
+-        if(IS_DIRECTORY "${entry}")
+-            list(APPEND sunxi_mpp_include_dirs "${entry}")
+-        else()
+-            get_filename_component(entry_dir "${entry}" DIRECTORY)
+-            list(APPEND sunxi_mpp_include_dirs "${entry_dir}")
+-        endif()
+-    endforeach()
+-    list(REMOVE_DUPLICATES sunxi_mpp_include_dirs)
++    # Public include roots only. Recursively adding every directory makes
++    # json/features.h shadow musl's <features.h> and breaks C++ compilation.
++    set(sunxi_mpp_include_dirs
++        "${MPP_ROOT}/include"
++        "${MPP_ROOT}/include/rtsp"
++        "${MPP_ROOT}/include/viplite"
++        "${MPP_ROOT}/include/mpp/middleware/include"
++        "${MPP_ROOT}/include/mpp/middleware/include/media"
++        "${MPP_ROOT}/include/mpp/middleware/include/utils"
++        "${MPP_ROOT}/include/mpp/middleware/media/include"
++        "${MPP_ROOT}/include/mpp/middleware/media/include/component"
++        "${MPP_ROOT}/include/mpp/middleware/media/include/utils"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libcedarx/libcore/common/iniparser"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libisp/isp_tuning"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libisp/isp_dev"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libisp"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libisp/include"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libisp/include/V4l2Camera"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libisp/include/device"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libcedarc/include"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/libcedarx/libcore/base/include"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/include_stream"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/include_muxer"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/include_demux"
++        "${MPP_ROOT}/include/mpp/middleware/media/LIBRARY/include_FsWriter"
++        "${MPP_ROOT}/include/mpp/middleware/sample/configfileparser"
++        "${MPP_ROOT}/include/mpp/system/public/include"
++        "${MPP_ROOT}/include/mpp/system/public/libion/include")
+ 
+     add_library(sunxi_mpp_headers INTERFACE)
+     add_library(sunxi_mpp::headers ALIAS sunxi_mpp_headers)
+     target_include_directories(sunxi_mpp_headers SYSTEM INTERFACE
+         ${sunxi_mpp_include_dirs})
++
++    target_compile_definitions(sunxi_mpp_headers INTERFACE AWCHIP=0x1886)
++    foreach(codec VDEC_H264 VDEC_H265 VDEC_JPEG VENC_H264 VENC_H265 VENC_JPEG)
++        target_compile_definitions(sunxi_mpp_headers INTERFACE
++            "SUNXI_MPP_${codec}=${SUNXI_MPP_${codec}}")
++    endforeach()
+ 
+     _sunxi_mpp_add_profile(preview GROUPS CORE VI VO)
+     _sunxi_mpp_add_profile(streaming GROUPS CORE VI VENC RTSP)
+--- a/cmake/toolchains/v851s-musl.cmake
++++ b/cmake/toolchains/v851s-musl.cmake
+@@ -21,6 +21,9 @@
+     message(FATAL_ERROR "Set V851S_SYSROOT to an existing absolute directory")
+ endif()
+ 
++set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
++    V851S_C_COMPILER V851S_CXX_COMPILER V851S_SYSROOT V851S_ARCH_FLAGS V851S_DEPENDENCY_ROOTS)
++
+ set(CMAKE_C_COMPILER "${V851S_C_COMPILER}")
+ set(CMAKE_CXX_COMPILER "${V851S_CXX_COMPILER}")
+ set(CMAKE_SYSROOT "${V851S_SYSROOT}")
+@@ -31,7 +34,8 @@
+ set(CMAKE_C_FLAGS_INIT "${V851S_ARCH_FLAGS}")
+ set(CMAKE_CXX_FLAGS_INIT "${V851S_ARCH_FLAGS}")
+ 
+-set(CMAKE_FIND_ROOT_PATH "${V851S_SYSROOT}")
++set(V851S_DEPENDENCY_ROOTS "" CACHE STRING "Additional target dependency prefixes")
++set(CMAKE_FIND_ROOT_PATH "${V851S_SYSROOT}" ${V851S_DEPENDENCY_ROOTS})
+ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+--- a/services/camera-mpp-service/CMakeLists.txt
++++ b/services/camera-mpp-service/CMakeLists.txt
+@@ -13,6 +13,7 @@
+     src/ServiceConfig.cpp
+     src/SnapshotOutput.cpp
+     src/UvcPipeline.cpp
++    src/VencIspLink.cpp
+     src/main.cpp
+ )
+ 
+@@ -25,6 +26,8 @@
+     camera::common
+     sunxi_mpp::service
+ )
++target_link_options(camera_mpp_service PRIVATE
++    "-Wl,-Map,${CMAKE_CURRENT_BINARY_DIR}/camera-mpp-service.map")
+ target_compile_features(camera_mpp_service PRIVATE cxx_std_14)
+ target_compile_options(camera_mpp_service PRIVATE
+     -Wall -Wextra -Wpedantic
+--- a/services/camera-mpp-service/include/camera/mpp/RecordOutput.hpp
++++ b/services/camera-mpp-service/include/camera/mpp/RecordOutput.hpp
+@@ -61,7 +61,6 @@
+     bool viEnabled_{false};
+     bool vencCreated_{false};
+     bool vencStarted_{false};
+-    bool muxGroupCreated_{false};
+     bool muxChannelCreated_{false};
+     bool muxStarted_{false};
+     bool viVencBound_{false};
+--- a/services/camera-mpp-service/include/camera/mpp/RtspOutput.hpp
++++ b/services/camera-mpp-service/include/camera/mpp/RtspOutput.hpp
+@@ -36,6 +36,8 @@
+     std::uint64_t generation() const { return generation_; }
+ 
+ private:
++    static ERRORTYPE vencCallback(void* cookie, MPP_CHN_S* channel,
++                                  MPP_EVENT_TYPE event, void* eventData);
+     Status prepareVenc();
+     Status prepareCodecHeader();
+     Status prepareServer();
+--- a/services/camera-mpp-service/include/camera/mpp/SnapshotOutput.hpp
++++ b/services/camera-mpp-service/include/camera/mpp/SnapshotOutput.hpp
+@@ -3,6 +3,7 @@
+ #include "camera/mpp/ServiceConfig.hpp"
+ #include "camera/mpp/Status.hpp"
+ 
++#include <atomic>
+ #include <condition_variable>
+ #include <mutex>
+ #include <string>
+@@ -27,6 +28,7 @@
+     Status writeJpegTemporary(const VENC_STREAM_S& stream,
+                               const std::string& temporaryPath);
+ 
++    std::atomic<ERRORTYPE> linkageError_{SUCCESS};
+     CameraConfig camera_;
+     SnapshotConfig snapshot_;
+     std::mutex captureMutex_;
+--- a/services/camera-mpp-service/include/camera/mpp/UvcPipeline.hpp
++++ b/services/camera-mpp-service/include/camera/mpp/UvcPipeline.hpp
+@@ -78,6 +78,8 @@
+     };
+ 
+ private:
++    static ERRORTYPE vencCallback(void* cookie, MPP_CHN_S* channel,
++                                  MPP_EVENT_TYPE event, void* eventData);
+ 
+     static const Profile* defaultProfile();
+     static const Profile* findProfile(std::uint8_t formatIndex,
+--- /dev/null
++++ b/services/camera-mpp-service/include/camera/mpp/VencIspLink.hpp
+@@ -0,0 +1,13 @@
++#pragma once
++
++#include <mpi_venc.h>
++#include <mpi_vi.h>
++
++namespace camera {
++namespace mpp {
++
++// ISP2VE eventData is borrowed only until the callback returns.
++ERRORTYPE updateVencIspParameters(VI_DEV vipp, VENC_CHN channel, void* eventData);
++
++}  // namespace mpp
++}  // namespace camera
+--- a/services/camera-mpp-service/src/MppService.cpp
++++ b/services/camera-mpp-service/src/MppService.cpp
+@@ -114,13 +114,13 @@
+         }
+         result += codec;
+     };
+-    if (config.allowH264 != 0) {
++    if (SUNXI_MPP_VDEC_H264 && config.allowH264 != 0) {
+         append("h264");
+     }
+-    if (config.allowH265 != 0) {
++    if (SUNXI_MPP_VDEC_H265 && config.allowH265 != 0) {
+         append("h265");
+     }
+-    if (config.allowMjpeg != 0) {
++    if (SUNXI_MPP_VDEC_JPEG && config.allowMjpeg != 0) {
+         append("mjpeg");
+     }
+     return result;
+--- a/services/camera-mpp-service/src/PlaybackPipeline.cpp
++++ b/services/camera-mpp-service/src/PlaybackPipeline.cpp
+@@ -1,5 +1,6 @@
+ #include "camera/mpp/PlaybackPipeline.hpp"
+ 
++#include <ClockCompPortIndex.h>
+ #include <algorithm>
+ #include <cstring>
+ #include <fcntl.h>
+@@ -10,7 +11,7 @@
+ namespace mpp {
+ namespace {
+ 
+-constexpr int kClockVideoPort = 1;
++constexpr int kClockVideoPort = CLOCK_PORT_INDEX_VIDEO;
+ 
+ Status mppFailure(const char* operation, ERRORTYPE result) {
+     return Status::failure(operation, std::to_string(result));
+@@ -30,9 +31,9 @@
+ }
+ 
+ bool codecAllowed(const PlaybackConfig& config, PAYLOAD_TYPE_E type) {
+-    return (type == PT_H264 && config.allowH264 != 0) ||
+-           (type == PT_H265 && config.allowH265 != 0) ||
+-           (type == PT_MJPEG && config.allowMjpeg != 0);
++    return (type == PT_H264 && SUNXI_MPP_VDEC_H264 && config.allowH264 != 0) ||
++           (type == PT_H265 && SUNXI_MPP_VDEC_H265 && config.allowH265 != 0) ||
++           (type == PT_MJPEG && SUNXI_MPP_VDEC_JPEG && config.allowMjpeg != 0);
+ }
+ 
+ }  // namespace
+@@ -73,7 +74,6 @@
+ 
+     DEMUX_CHN_ATTR_S demux;
+     std::memset(&demux, 0, sizeof(demux));
+-    demux.mStreamType = STREAMTYPE_LOCALFILE;
+     demux.mSourceType = SOURCETYPE_FD;
+     demux.mSourceUrl = nullptr;
+     demux.mFd = sourceDescriptor_;
+--- a/services/camera-mpp-service/src/RecordOutput.cpp
++++ b/services/camera-mpp-service/src/RecordOutput.cpp
+@@ -1,4 +1,5 @@
+ #include "camera/mpp/RecordOutput.hpp"
++#include "camera/mpp/VencIspLink.hpp"
+ 
+ #include "camera/mpp/FileCommit.hpp"
+ 
+@@ -55,7 +56,7 @@
+ }
+ 
+ Status RecordOutput::start(VI_DEV viDevice, const std::string& finalPath) {
+-    if (started_ || viCreated_ || vencCreated_ || muxGroupCreated_) {
++    if (started_ || viCreated_ || vencCreated_ || muxChannelCreated_) {
+         return Status::failure("record_already_active", "record output is busy");
+     }
+     ++generation_;
+@@ -97,7 +98,7 @@
+ 
+     MPP_CHN_S vi = {MOD_ID_VIU, viDevice_, camera_.recordChannel};
+     MPP_CHN_S venc = {MOD_ID_VENC, 0, record_.vencChannel};
+-    MPP_CHN_S mux = {MOD_ID_MUX, 0, record_.muxGroup};
++    MPP_CHN_S mux = {MOD_ID_MUX, 0, record_.muxChannel};
+     result = AW_MPI_SYS_Bind(&vi, &venc);
+     if (result != SUCCESS) {
+         status = mppFailure("record_bind_vi_venc_failed", result);
+@@ -113,6 +114,26 @@
+     }
+     vencMuxBound_ = true;
+ 
++    // Binding establishes the VENC-to-stream mapping used by ExtraData.
++    VencHeaderData header{};
++    result = AW_MPI_VENC_GetH264SpsPpsInfo(record_.vencChannel, &header);
++    if (result != SUCCESS) {
++        status = mppFailure("record_sps_pps_failed", result);
++        cleanup(false);
++        return status;
++    }
++    if (header.pBuffer == nullptr || header.nLength == 0) {
++        cleanup(false);
++        return Status::failure("record_sps_pps_empty", "VENC returned an empty H.264 header");
++    }
++    result = AW_MPI_MUX_SetH264SpsPpsInfo(
++        record_.muxChannel, record_.vencChannel, &header);
++    if (result != SUCCESS) {
++        status = mppFailure("record_mux_sps_pps_failed", result);
++        cleanup(false);
++        return status;
++    }
++
+     result = AW_MPI_VI_EnableVirChn(viDevice_, camera_.recordChannel);
+     if (result != SUCCESS) {
+         status = mppFailure("record_vi_enable_failed", result);
+@@ -127,7 +148,7 @@
+         return status;
+     }
+     vencStarted_ = true;
+-    result = AW_MPI_MUX_StartGrp(record_.muxGroup);
++    result = AW_MPI_MUX_StartChn(record_.muxChannel);
+     if (result != SUCCESS) {
+         status = mppFailure("record_mux_start_failed", result);
+         cleanup(false);
+@@ -163,6 +184,9 @@
+     attributes.VeAttr.AttrH264e.PicHeight = record_.height;
+     attributes.VeAttr.AttrH264e.mbPIntraEnable = TRUE;
+     attributes.RcAttr.mRcMode = VENC_RC_MODE_H264CBR;
++    attributes.RcAttr.mAttrH264Cbr.mSrcFrmRate = camera_.frameRate;
++    attributes.RcAttr.mAttrH264Cbr.mDstFrmRate = record_.frameRate;
++    attributes.RcAttr.mAttrH264Cbr.mGop = record_.frameRate;
+     attributes.RcAttr.mAttrH264Cbr.mBitRate = record_.bitRate;
+     attributes.GopAttr.enGopMode = VENC_GOPMODE_NORMALP;
+     attributes.GopAttr.mGopSize = record_.frameRate;
+@@ -173,6 +197,13 @@
+         return mppFailure("record_venc_create_failed", result);
+     }
+     vencCreated_ = true;
++    MPPCallbackInfo callbackInfo {};
++    callbackInfo.cookie = this;
++    callbackInfo.callback = &RecordOutput::callback;
++    result = AW_MPI_VENC_RegisterCallback(record_.vencChannel, &callbackInfo);
++    if (result != SUCCESS) {
++        return mppFailure("record_venc_callback_failed", result);
++    }
+ 
+     VENC_FRAME_RATE_S frameRate;
+     std::memset(&frameRate, 0, sizeof(frameRate));
+@@ -186,66 +217,44 @@
+ }
+ 
+ Status RecordOutput::prepareMux() {
+-    MUX_GRP_ATTR_S group;
+-    std::memset(&group, 0, sizeof(group));
+-    group.mVideoAttrValidNum = 1;
+-    group.mVideoAttr[0].mVideoEncodeType = PT_H264;
+-    group.mVideoAttr[0].mWidth = record_.width;
+-    group.mVideoAttr[0].mHeight = record_.height;
+-    group.mVideoAttr[0].mVideoFrmRate = record_.frameRate * 1000;
+-    group.mVideoAttr[0].mMaxKeyInterval = record_.frameRate;
+-    group.mVideoAttr[0].mVeChn = record_.vencChannel;
+-    group.mAudioEncodeType = PT_MAX;
+-    group.mTextEncodeType = PT_MAX;
+-
+-    ERRORTYPE result = AW_MPI_MUX_CreateGrp(record_.muxGroup, &group);
+-    if (result != SUCCESS) {
+-        return mppFailure("record_mux_group_create_failed", result);
+-    }
+-    muxGroupCreated_ = true;
+-
+-    MPPCallbackInfo callbackInfo;
+-    callbackInfo.cookie = this;
+-    callbackInfo.callback = &RecordOutput::callback;
+-    result = AW_MPI_MUX_RegisterCallback(record_.muxGroup, &callbackInfo);
+-    if (result != SUCCESS) {
+-        return mppFailure("record_mux_callback_failed", result);
+-    }
+-
+-    VencHeaderData header;
+-    std::memset(&header, 0, sizeof(header));
+-    result = AW_MPI_VENC_GetH264SpsPpsInfo(record_.vencChannel, &header);
+-    if (result != SUCCESS) {
+-        return mppFailure("record_sps_pps_failed", result);
+-    }
+-    result = AW_MPI_MUX_SetH264SpsPpsInfo(
+-        record_.muxGroup, record_.vencChannel, &header);
+-    if (result != SUCCESS) {
+-        return mppFailure("record_mux_sps_pps_failed", result);
+-    }
+-
+-    MUX_CHN_ATTR_S channel;
+-    std::memset(&channel, 0, sizeof(channel));
++    // Current sun8iw21 SDK uses one MUX channel, not a group plus subchannel.
++    MUX_CHN_ATTR_S channel{};
++    channel.mVideoAttrValidNum = 1;
++    channel.mVideoAttr[0].mVideoEncodeType = PT_H264;
++    channel.mVideoAttr[0].mWidth = record_.width;
++    channel.mVideoAttr[0].mHeight = record_.height;
++    channel.mVideoAttr[0].mVideoFrmRate = record_.frameRate * 1000;
++    channel.mVideoAttr[0].mMaxKeyInterval = record_.frameRate;
++    channel.mVideoAttr[0].mVeChn = record_.vencChannel;
++    channel.mAudioEncodeType = PT_MAX;
++    channel.mTextEncodeType = PT_MAX;
+     channel.mMuxerId = 0;
+     channel.mMediaFileFormat = MEDIA_FILE_FORMAT_MP4;
+     channel.mMaxFileDuration = 0;
+-    channel.mFallocateLen = 0;
++    channel.mMaxFileSizeBytes = 0;
+     channel.mCallbackOutFlag = FALSE;
+     channel.mFsWriteMode = FSWRITEMODE_SIMPLECACHE;
+     channel.mSimpleCacheSize = 512 * 1024;
+     channel.mAddRepairInfo = record_.addRepairInfo;
+     channel.mMaxFrmsTagInterval = record_.repairBackupIntervalUs;
+-    result = AW_MPI_MUX_CreateChn(record_.muxGroup, record_.muxChannel,
+-                                 &channel, fileDescriptor_);
++
++    ERRORTYPE result = AW_MPI_MUX_CreateChn(
++        record_.muxChannel, &channel, fileDescriptor_, 0);
+     if (result != SUCCESS) {
+         return mppFailure("record_mux_channel_create_failed", result);
+     }
+     muxChannelCreated_ = true;
+-    return Status::success();
++
++    MPPCallbackInfo callbackInfo{};
++    callbackInfo.cookie = this;
++    callbackInfo.callback = &RecordOutput::callback;
++    result = AW_MPI_MUX_RegisterCallback(record_.muxChannel, &callbackInfo);
++    return result == SUCCESS ? Status::success()
++                             : mppFailure("record_mux_callback_failed", result);
+ }
+ 
+ Status RecordOutput::stop() {
+-    if (!started_ && !viCreated_ && !vencCreated_ && !muxGroupCreated_) {
++    if (!started_ && !viCreated_ && !vencCreated_ && !muxChannelCreated_) {
+         return Status::success();
+     }
+     return cleanup(true);
+@@ -281,7 +290,7 @@
+         vencStarted_ = false;
+     }
+     if (muxStarted_) {
+-        const ERRORTYPE result = AW_MPI_MUX_StopGrp(record_.muxGroup);
++        const ERRORTYPE result = AW_MPI_MUX_StopChn(record_.muxChannel, commitFile ? FALSE : TRUE);
+         if (result != SUCCESS) {
+             retain(mppFailure("record_mux_stop_failed", result));
+         }
+@@ -290,7 +299,7 @@
+ 
+     MPP_CHN_S vi = {MOD_ID_VIU, viDevice_, camera_.recordChannel};
+     MPP_CHN_S venc = {MOD_ID_VENC, 0, record_.vencChannel};
+-    MPP_CHN_S mux = {MOD_ID_MUX, 0, record_.muxGroup};
++    MPP_CHN_S mux = {MOD_ID_MUX, 0, record_.muxChannel};
+     if (vencMuxBound_) {
+         const ERRORTYPE result = AW_MPI_SYS_UnBind(&venc, &mux);
+         if (result != SUCCESS) {
+@@ -306,19 +315,11 @@
+         viVencBound_ = false;
+     }
+     if (muxChannelCreated_) {
+-        const ERRORTYPE result =
+-            AW_MPI_MUX_DestroyChn(record_.muxGroup, record_.muxChannel);
++        const ERRORTYPE result = AW_MPI_MUX_DestroyChn(record_.muxChannel);
+         if (result != SUCCESS) {
+             retain(mppFailure("record_mux_channel_destroy_failed", result));
+         }
+         muxChannelCreated_ = false;
+-    }
+-    if (muxGroupCreated_) {
+-        const ERRORTYPE result = AW_MPI_MUX_DestroyGrp(record_.muxGroup);
+-        if (result != SUCCESS) {
+-            retain(mppFailure("record_mux_group_destroy_failed", result));
+-        }
+-        muxGroupCreated_ = false;
+     }
+     if (vencCreated_) {
+         const ERRORTYPE result = AW_MPI_VENC_DestroyChn(record_.vencChannel);
+@@ -430,8 +431,19 @@
+ }
+ 
+ ERRORTYPE RecordOutput::callback(void* cookie, MPP_CHN_S* channel,
+-                                 MPP_EVENT_TYPE event, void*) {
++                                 MPP_EVENT_TYPE event, void* eventData) {
+     auto* self = static_cast<RecordOutput*>(cookie);
++    if (self != nullptr && channel != nullptr &&
++        channel->mModId == MOD_ID_VENC &&
++        event == MPP_EVENT_LINKAGE_ISP2VE_PARAM) {
++        const ERRORTYPE result = updateVencIspParameters(
++            self->viDevice_, channel->mChnId, eventData);
++        if (result != SUCCESS) {
++            self->mailbox_.postCritical({PipelineEventType::PipelineError,
++                                        "record_isp_link_failed", std::to_string(result)});
++        }
++        return result;
++    }
+     if (self == nullptr || channel == nullptr || channel->mModId != MOD_ID_MUX) {
+         return SUCCESS;
+     }
+--- a/services/camera-mpp-service/src/RtspOutput.cpp
++++ b/services/camera-mpp-service/src/RtspOutput.cpp
+@@ -1,4 +1,5 @@
+ #include "camera/mpp/RtspOutput.hpp"
++#include "camera/mpp/VencIspLink.hpp"
+ 
+ #include <MediaStream.h>
+ #include <TinyServer.h>
+@@ -198,6 +199,9 @@
+     attributes.VeAttr.AttrH264e.PicHeight = rtsp_.height;
+     attributes.VeAttr.AttrH264e.mbPIntraEnable = TRUE;
+     attributes.RcAttr.mRcMode = VENC_RC_MODE_H264CBR;
++    attributes.RcAttr.mAttrH264Cbr.mSrcFrmRate = camera_.frameRate;
++    attributes.RcAttr.mAttrH264Cbr.mDstFrmRate = rtsp_.frameRate;
++    attributes.RcAttr.mAttrH264Cbr.mGop = rtsp_.frameRate;
+     attributes.RcAttr.mAttrH264Cbr.mBitRate = rtsp_.bitRate;
+     attributes.GopAttr.enGopMode = VENC_GOPMODE_NORMALP;
+     attributes.GopAttr.mGopSize = rtsp_.frameRate;
+@@ -208,6 +212,13 @@
+         return mppFailure("rtsp_venc_create_failed", result);
+     }
+     vencCreated_ = true;
++    MPPCallbackInfo callbackInfo {};
++    callbackInfo.cookie = this;
++    callbackInfo.callback = &RtspOutput::vencCallback;
++    result = AW_MPI_VENC_RegisterCallback(rtsp_.vencChannel, &callbackInfo);
++    if (result != SUCCESS) {
++        return mppFailure("rtsp_venc_callback_failed", result);
++    }
+ 
+     VENC_FRAME_RATE_S frameRate;
+     std::memset(&frameRate, 0, sizeof(frameRate));
+@@ -509,5 +520,20 @@
+     return firstFailure;
+ }
+ 
++ERRORTYPE RtspOutput::vencCallback(void* cookie, MPP_CHN_S* channel,
++                                      MPP_EVENT_TYPE event, void* eventData) {
++    auto* self = static_cast<RtspOutput*>(cookie);
++    if (self == nullptr || channel == nullptr || channel->mModId != MOD_ID_VENC ||
++        event != MPP_EVENT_LINKAGE_ISP2VE_PARAM) {
++        return SUCCESS;
++    }
++    const ERRORTYPE result = updateVencIspParameters(
++        self->viDevice_, channel->mChnId, eventData);
++    if (result != SUCCESS) {
++        self->postFaultOnce("rtsp_isp_link_failed", std::to_string(result));
++    }
++    return result;
++}
++
+ }  // namespace mpp
+ }  // namespace camera
+--- a/services/camera-mpp-service/src/ServiceConfig.cpp
++++ b/services/camera-mpp-service/src/ServiceConfig.cpp
+@@ -292,6 +292,11 @@
+ }
+ 
+ Status ServiceConfig::validate() const {
++    if (record.muxGroup != 0) {
++        return Status::failure("config_mux_group_unsupported",
++            "current SDK uses record.mux_channel; legacy record.mux_group must be 0");
++    }
++
+     if (socketPath.empty() || socketPath.front() != '/' ||
+         backendLockPath.empty() || backendLockPath.front() != '/') {
+         return Status::failure("config_invalid", "IPC paths must be absolute");
+--- a/services/camera-mpp-service/src/SnapshotOutput.cpp
++++ b/services/camera-mpp-service/src/SnapshotOutput.cpp
+@@ -1,4 +1,5 @@
+ #include "camera/mpp/SnapshotOutput.hpp"
++#include "camera/mpp/VencIspLink.hpp"
+ 
+ #include "camera/mpp/FileCommit.hpp"
+ 
+@@ -77,6 +78,7 @@
+     attributes.EncppAttr.mbEncppEnable = TRUE;
+ 
+     Status status = Status::success();
++    linkageError_.store(SUCCESS);
+     result = AW_MPI_VENC_CreateChn(snapshot_.vencChannel, &attributes);
+     if (result != SUCCESS) {
+         status = mppFailure("snapshot_venc_create_failed", result);
+@@ -142,12 +144,17 @@
+         std::unique_lock<std::mutex> lock(callbackMutex_);
+         if (!callbackCondition_.wait_for(
+                 lock, std::chrono::milliseconds(snapshot_.timeoutMs),
+-                [this] { return frameReturned_; })) {
++                [this] { return frameReturned_ || linkageError_.load() != SUCCESS; })) {
+             status = Status::failure(
+                 "snapshot_frame_return_timeout",
+                 "VENC did not release the VI frame before timeout");
+             goto cleanup;
+         }
++    }
++
++    if (linkageError_.load() != SUCCESS) {
++        status = mppFailure("snapshot_isp_link_failed", linkageError_.load());
++        goto cleanup;
+     }
+ 
+     result = AW_MPI_VI_ReleaseFrame(viDevice, viChannel, &frame);
+@@ -215,9 +222,20 @@
+     return status;
+ }
+ 
+-ERRORTYPE SnapshotOutput::callback(void* cookie, MPP_CHN_S*,
++ERRORTYPE SnapshotOutput::callback(void* cookie, MPP_CHN_S* channel,
+                                    MPP_EVENT_TYPE event, void* eventData) {
+     auto* self = static_cast<SnapshotOutput*>(cookie);
++    if (self != nullptr && channel != nullptr &&
++        channel->mModId == MOD_ID_VENC &&
++        event == MPP_EVENT_LINKAGE_ISP2VE_PARAM) {
++        const ERRORTYPE result = updateVencIspParameters(
++            self->camera_.vippDevice, channel->mChnId, eventData);
++        if (result != SUCCESS) {
++            self->linkageError_.store(result);
++            self->callbackCondition_.notify_one();
++        }
++        return result;
++    }
+     if (self == nullptr || event != MPP_EVENT_RELEASE_VIDEO_BUFFER ||
+         eventData == nullptr) {
+         return SUCCESS;
+--- a/services/camera-mpp-service/src/UvcPipeline.cpp
++++ b/services/camera-mpp-service/src/UvcPipeline.cpp
+@@ -1,4 +1,5 @@
+ #include "camera/mpp/UvcPipeline.hpp"
++#include "camera/mpp/VencIspLink.hpp"
+ 
+ #include <algorithm>
+ #include <cerrno>
+@@ -857,7 +858,7 @@
+         attributes.VeAttr.AttrMjpeg.mPicHeight = profile.height;
+         attributes.RcAttr.mRcMode = VENC_RC_MODE_MJPEGCBR;
+         attributes.RcAttr.mAttrMjpegeCbr.mSrcFrmRate = 30;
+-        attributes.RcAttr.mAttrMjpegeCbr.fr32DstFrmRate = 30;
++        attributes.RcAttr.mAttrMjpegeCbr.mDstFrmRate = 30;
+         attributes.RcAttr.mAttrMjpegeCbr.mBitRate = config_.mjpegBitRate;
+     } else {
+         attributes.VeAttr.AttrH264e.MaxPicWidth = profile.width;
+@@ -874,7 +875,7 @@
+         attributes.RcAttr.mRcMode = VENC_RC_MODE_H264CBR;
+         attributes.RcAttr.mAttrH264Cbr.mGop = 30;
+         attributes.RcAttr.mAttrH264Cbr.mSrcFrmRate = 30;
+-        attributes.RcAttr.mAttrH264Cbr.fr32DstFrmRate = 30;
++        attributes.RcAttr.mAttrH264Cbr.mDstFrmRate = 30;
+         attributes.RcAttr.mAttrH264Cbr.mBitRate = config_.h264BitRate;
+     }
+ 
+@@ -884,6 +885,13 @@
+         return mppFailure("uvc_venc_create_failed", result);
+     }
+     vencCreated_ = true;
++    MPPCallbackInfo callbackInfo {};
++    callbackInfo.cookie = this;
++    callbackInfo.callback = &UvcPipeline::vencCallback;
++    result = AW_MPI_VENC_RegisterCallback(config_.vencChannel, &callbackInfo);
++    if (result != SUCCESS) {
++        return mppFailure("uvc_venc_callback_failed", result);
++    }
+ 
+     VENC_FRAME_RATE_S frameRate {};
+     frameRate.SrcFrmRate = 30;
+@@ -1313,5 +1321,20 @@
+     return SUCCESS;
+ }
+ 
++ERRORTYPE UvcPipeline::vencCallback(void* cookie, MPP_CHN_S* channel,
++                                      MPP_EVENT_TYPE event, void* eventData) {
++    auto* self = static_cast<UvcPipeline*>(cookie);
++    if (self == nullptr || channel == nullptr || channel->mModId != MOD_ID_VENC ||
++        event != MPP_EVENT_LINKAGE_ISP2VE_PARAM) {
++        return SUCCESS;
++    }
++    const ERRORTYPE result = updateVencIspParameters(
++        self->config_.vippDevice, channel->mChnId, eventData);
++    if (result != SUCCESS) {
++        self->setCaptureFault("uvc_isp_link_failed", std::to_string(result));
++    }
++    return result;
++}
++
+ }  // namespace mpp
+ }  // namespace camera
+--- /dev/null
++++ b/services/camera-mpp-service/src/VencIspLink.cpp
+@@ -0,0 +1,55 @@
++#include "camera/mpp/VencIspLink.hpp"
++
++#include <cstring>
++#include <mpi_isp.h>
++
++namespace camera {
++namespace mpp {
++
++ERRORTYPE updateVencIspParameters(VI_DEV vipp, VENC_CHN channel, void* eventData) {
++    if (eventData == nullptr) {
++        return ERR_VENC_NULL_PTR;
++    }
++    auto* output = static_cast<VencIsp2VeParam*>(eventData);
++    ISP_DEV isp = 0;
++    ERRORTYPE result = AW_MPI_VI_GetIspDev(vipp, &isp);
++    if (result != SUCCESS) {
++        return result;
++    }
++    struct isp_ae_stats_s ae {};
++    struct enc_VencIsp2VeParam input {};
++    input.AeStatsInfo = &ae;
++    result = AW_MPI_ISP_GetIsp2VeParam(isp, &input);
++    if (result != SUCCESS) {
++        return result;
++    }
++
++    // These are the paired ISP/encoder ABI types in the current SDK.
++    static_assert(sizeof(output->mIspAeStatus) == sizeof(ae), "ISP/VE AE ABI");
++    static_assert(sizeof(output->mSharpParam.mDynamicParam) ==
++                  sizeof(input.mDynamicSharpCfg), "ISP/VE dynamic sharp ABI");
++    static_assert(sizeof(output->mSharpParam.mStaticParam) ==
++                  sizeof(input.mStaticSharpCfg), "ISP/VE static sharp ABI");
++    std::memcpy(&output->mIspAeStatus, &ae, sizeof(ae));
++    if (input.encpp_en) {
++        std::memcpy(&output->mSharpParam.mDynamicParam, &input.mDynamicSharpCfg,
++                    sizeof(input.mDynamicSharpCfg));
++        std::memcpy(&output->mSharpParam.mStaticParam, &input.mStaticSharpCfg,
++                    sizeof(input.mStaticSharpCfg));
++    }
++
++    VENC_CHN_ATTR_S attributes {};
++    result = AW_MPI_VENC_GetChnAttr(channel, &attributes);
++    if (result != SUCCESS) {
++        return result;
++    }
++    const BOOL enabled = input.encpp_en ? TRUE : FALSE;
++    if (attributes.EncppAttr.mbEncppEnable != enabled) {
++        attributes.EncppAttr.mbEncppEnable = enabled;
++        return AW_MPI_VENC_SetChnAttr(channel, &attributes);
++    }
++    return SUCCESS;
++}
++
++}  // namespace mpp
++}  // namespace camera
+--- a/src/component/MPP/preview+encoder/CMakeLists.txt
++++ b/src/component/MPP/preview+encoder/CMakeLists.txt
+@@ -3,11 +3,13 @@
+ 
+ add_executable(camera_mpp_recording_reference
+     "${recording_reference_dir}/sample_vi2venc2muxer.c"
++    "${SUNXI_MPP_IMPORTED_ROOT}/sample/common/sample_common_venc.c"
+ )
+ 
+ target_include_directories(camera_mpp_recording_reference PRIVATE
+     "${recording_reference_dir}"
+ )
++target_compile_options(camera_mpp_recording_reference PRIVATE -include mpi_vi.h)
+ target_link_libraries(camera_mpp_recording_reference PRIVATE
+     sunxi_mpp::recording)
+ set_target_properties(camera_mpp_recording_reference PROPERTIES
+--- a/src/component/MPP/rtsp/sample_rtsp.c
++++ b/src/component/MPP/rtsp/sample_rtsp.c
+@@ -1,3 +1,4 @@
++#include <plat_math.h>
+ /******************************************************************************
+   Copyright (C), 2001-2017, Allwinner Tech. Co., Ltd.
+  ******************************************************************************
+@@ -510,8 +511,8 @@
+     pContext->mMainStream.mVEncChnAttr.VeAttr.Field = VIDEO_FIELD_FRAME;
+     pContext->mMainStream.mVEncChnAttr.VeAttr.PixelFormat = pContext->mConfigPara.mMainPixelFormat;
+     pContext->mMainStream.mVEncChnAttr.VeAttr.mColorSpace = pContext->mMainStream.mViAttr.format.colorspace;
+-    pContext->mMainStream.mVEncRcParam.product_mode = VENC_PRODUCT_IPC_MODE;
+-    pContext->mMainStream.mVEncRcParam.sensor_type = VENC_ST_EN_WDR;
++    pContext->mMainStream.mVEncChnAttr.RcAttr.mProductMode = PRODUCT_STATIC_IPC;
++    /* Current SDK no longer exposes the old sensor_type RC parameter. */
+ 
+     pContext->mMainStream.mEncppSharpAttenCoefPer = 100;
+     alogd("main EncppSharpAttenCoefPer: %d%%", pContext->mMainStream.mEncppSharpAttenCoefPer);
+@@ -644,8 +645,8 @@
+     pContext->mSubStream.mVEncChnAttr.VeAttr.Field = VIDEO_FIELD_FRAME;
+     pContext->mSubStream.mVEncChnAttr.VeAttr.PixelFormat = pContext->mConfigPara.mSubPixelFormat;
+     pContext->mSubStream.mVEncChnAttr.VeAttr.mColorSpace = pContext->mSubStream.mViAttr.format.colorspace;
+-    pContext->mSubStream.mVEncRcParam.product_mode = VENC_PRODUCT_IPC_MODE;
+-    pContext->mSubStream.mVEncRcParam.sensor_type = VENC_ST_EN_WDR;
++    pContext->mSubStream.mVEncChnAttr.RcAttr.mProductMode = PRODUCT_STATIC_IPC;
++    /* Current SDK no longer exposes the old sensor_type RC parameter. */
+ 
+     pContext->mSubStream.mEncppSharpAttenCoefPer = pContext->mConfigPara.mSubEncppSharpAttenCoefPer;
+     alogd("sub EncppSharpAttenCoefPer: %d%%", pContext->mSubStream.mEncppSharpAttenCoefPer);
+@@ -765,8 +766,8 @@
+     pContext->mSubLapseStream.mVEncChnAttr.VeAttr.Field = VIDEO_FIELD_FRAME;
+     pContext->mSubLapseStream.mVEncChnAttr.VeAttr.PixelFormat = pContext->mConfigPara.mSubLapsePixelFormat;
+     pContext->mSubLapseStream.mVEncChnAttr.VeAttr.mColorSpace = pContext->mSubLapseStream.mViAttr.format.colorspace;
+-    pContext->mSubLapseStream.mVEncRcParam.product_mode = VENC_PRODUCT_IPC_MODE;
+-    pContext->mSubLapseStream.mVEncRcParam.sensor_type = VENC_ST_EN_WDR;
++    pContext->mSubLapseStream.mVEncChnAttr.RcAttr.mProductMode = PRODUCT_STATIC_IPC;
++    /* Current SDK no longer exposes the old sensor_type RC parameter. */
+ 
+     pContext->mSubLapseStream.mEncppSharpAttenCoefPer = pContext->mConfigPara.mSubLapseEncppSharpAttenCoefPer;
+     alogd("subLapse EncppSharpAttenCoefPer: %d%%", pContext->mSubLapseStream.mEncppSharpAttenCoefPer);
+@@ -912,8 +913,8 @@
+         }
+         return NULL;
+     }
+-    wb_wdith  = ALIGN(wb_wdith, 16);
+-    wb_height = ALIGN(wb_height, 16);
++    wb_wdith  = AWALIGN(wb_wdith, 16);
++    wb_height = AWALIGN(wb_height, 16);
+ 
+     while (!pContext->mbExitFlag && wbYuvCnt < pContext->mConfigPara.mWbYuvTotalCnt)
+     {
+--- a/third_party/README.md
++++ b/third_party/README.md
+@@ -1,38 +1,42 @@
+ # Third-party dependencies
+ 
+-`sunxi-mpp-sdk/` is generated locally and intentionally ignored by Git.  Create
+-it with:
++`sunxi-mpp-sdk/` is generated locally and ignored by Git. Import the **current,
++already-built** Tina SDK on the Ubuntu build host:
+ 
+ ```sh
+-./tools/fetch_sunxi_mpp.sh
++python3 tools/import_sunxi_mpp.py --sdk-root /home/ubuntu/tina-v853-100ask
+ ```
+ 
+-The fetcher pins Yuzukilizard commit
+-`94bb93ad67fd862c5f6fe6c29fbc0f54950e7107`, copies the MPP headers, and copies
+-only the libraries listed in `sunxi-mpp.manifest`.  The generated bundle is the
+-default value of `SUNXI_MPP_ROOT` used by Application's CMake build.
++The default board is `v853-100ask`. Headers and selected libraries come from
++`out/<board>/staging_dir/target/usr/{include,lib}`. VIPLite comes from the same
++staging area. The DISP2 header comes from this SDK's Linux 4.9 source.
++Six optional recording-reference source/config files come from its sample tree.
+ 
+-When the workspace reference tree is already prepared at the pinned commit,
+-the fetcher can reuse it without network access:
++An existing destination is never overwritten. Use `--destination /absolute/new-bundle`
++and select it with `SUNXI_MPP_ROOT` for a refresh. `fetch_sunxi_mpp.sh` is now
++a local import wrapper requiring `SUNXI_TINA_SDK_ROOT`.
+ 
+-```sh
+-SUNXI_MPP_SOURCE_CHECKOUT="$PWD/../TMP/Yuzukilizard" \
+-  ./tools/fetch_sunxi_mpp.sh
+-```
++## Provenance and checks
+ 
+-The current manifest includes the video-only DEMUX/VDEC archives required by
+-`PlaybackPipeline`. `audit_sunxi_mpp.sh` derives every `AW_MPI_*` call used by
+-the product service and checks that the selected static archives define it.
+-This is a symbol-presence check, not a successful-link or board capability
+-claim.
++- `SDK_SOURCE.json` records board, source paths, SDK/kernel/ISP hashes, and
++  every manifest artifact's SHA-256.
++- `SDK_FEATURES.cmake` records codec build switches from the SDK configuration.
++- `BUNDLE_MANIFEST` records the exact selection; CMake rejects manifest drift.
++- `SHA256SUMS` covers imported regular files. The audit also verifies symlinks.
++- `check_sdk_abi.py` compares bundle/source identity and cross-compiles sensor
++  ioctl/structure, public MPP and kernel UVC probes without executing ARM code.
+ 
+-The upstream `Software/sunxi-mpp` directory is a convenience binary SDK, not a
+-self-contained source release.  Its libraries are prebuilt for 32-bit ARM,
+-musl and the hard-float ABI.  The upstream repository does not provide a
+-software license covering this directory, and the optional Vivante VIPLite
+-headers identify themselves as proprietary.  Keep the generated bundle local
+-until redistribution rights have been confirmed with the relevant owners.
++This SDK splits the encoder into `libvenc_common`, `libvenc_h264`,
++`libvenc_h265` and `libvenc_jpeg`. Its component/parser registries require
++audio/text helpers, additional parsers, Expat and OpenSSL even for video-only
++product use. Static link groups provide that closure; this does not enable
++audio playback or HTTP media inputs.
+ 
+-Using this bundle removes the *build-time TinaSDK dependency* from the MPP
+-components.  It does not remove the target's kernel-driver, device-tree,
+-firmware, ISP tuning, C library or ABI requirements.
++The SDK enables H.264/JPEG decoding and disables H.265 decoding. Playback
++admission and IPC capability reporting intersect config with these switches.
++Do not add another SDK's decoder archive to bypass that gate.
++
++The legacy Yuzukilizard `Software/sunxi-mpp` sensor ioctl and public frame ABI
++are incompatible. Do not mix its headers or archives with this import.
++Generated vendor binaries stay local pending redistribution rights. Matching
++target drivers, sensor tuning, musl and shared runtime libraries remain required.
+--- a/third_party/sunxi-mpp.manifest
++++ b/third_party/sunxi-mpp.manifest
+@@ -1,10 +1,10 @@
+-# group       path relative to Software/sunxi-mpp
++# group       path relative to the locally imported current-SDK bundle
+ #
+-# This is the smallest feature-oriented bundle currently kept for Application:
++# Current SDK library closure used by Application:
+ # VI/ISP + VO preview + VENC/RTSP + VENC/MUX recording + video-only playback.
+ # The product does not create ADEC/AO, but some audio-named parser/mux/runtime
+ # artifacts remain because the vendor archives use them as transitive helpers.
+-# Smart algorithms, OpenSSL and sample media are deliberately omitted.
++# Vendor component/parser registries pull in helpers even for video-only use.
+ 
+ core          lib/libz.a
+ core          lib/liblog.a
+@@ -19,6 +19,17 @@
+ core          lib/libcdx_common.a
+ core          lib/libcdx_base.a
+ core          lib/libResample.a
++core          lib/libexpat.a
++core          lib/libAudioVps.a
++core          lib/libDrc.a
++core          lib/libAec.a
++core          lib/libAns.a
++core          lib/libcedarx_tencoder.a
++core          lib/libcedarx_aencoder.a
++core          lib/libadecoder.a
++core          lib/libaac.a
++core          lib/libaacenc.a
++core          lib/libwav.a
+ 
+ vi            lib/libISP.a
+ vi            lib/libisp_dev.a
+@@ -40,7 +51,10 @@
+ vo            lib/libhwdisplay.a
+ 
+ venc          lib/libvencoder.a
+-venc          lib/libvenc_codec.a
++venc          lib/libvenc_common.a
++venc          lib/libvenc_h264.a
++venc          lib/libvenc_h265.a
++venc          lib/libvenc_jpeg.a
+ venc          lib/libvenc_base.a
+ 
+ muxer         lib/libmuxers.a
+@@ -49,6 +63,7 @@
+ muxer         lib/libmpeg2ts_muxer.a
+ muxer         lib/libaac_muxer.a
+ muxer         lib/libmp3_muxer.a
++muxer         lib/libwav_muxer.a
+ muxer         lib/libffavutil.a
+ muxer         lib/libFsWriter.a
+ 
+@@ -67,13 +82,20 @@
+ demux         lib/libcdx_ts_parser.a
+ demux         lib/libcdx_wav_parser.a
+ demux         lib/libcdx_file_stream.a
++demux         lib/libcdx_ogg_parser.a
++demux         lib/libcdx_ape_parser.a
++demux         lib/libcdx_flac_parser.a
++demux         lib/libcdx_amr_parser.a
++demux         lib/libcdx_http_stream.a
++demux         lib/libcdx_tcp_stream.a
++demux         lib/libssl.a
++demux         lib/libcrypto.a
+ 
+ # Hardware video decoder backends.  The actual accepted codec/profile matrix
+ # remains a board-test result; listing an archive here is not a support claim.
+ vdec          lib/libvdecoder.a
+ vdec          lib/libvideoengine.a
+ vdec          lib/libawh264.a
+-vdec          lib/libawh265.a
+ vdec          lib/libawmjpeg.a
+ 
+ # Link-time and target-runtime shared libraries used by the vendor archives.
+@@ -84,15 +106,16 @@
+ runtime_data  lib/libglog.so.0.3.5
+ runtime_data  lib/libunwind.so.8
+ runtime_data  lib/libunwind.so.8.0.1
++runtime_data  lib/libasound.so.2
++runtime_data  lib/libasound.so.2.0.0
+ 
+-# Optional NPU runtime.  Its headers come from the upstream viplite-driver
+-# package because Software/sunxi-mpp does not contain vip_lite.h.
++# Optional NPU runtime and viplite-driver headers from the same SDK staging area.
+ npu           lib/libVIPlite.so
+ npu           lib/libVIPuser.so
+ 
+-# Reference VI -> VENC -> MUX implementation used to verify the recording
+-# dependency boundary.  It does not implement simultaneous VO preview.
+ record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer.c
+ record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer.h
+ record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer_conf.h
+ record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer.conf
++record_sample sample/common/sample_common_venc.c
++record_sample sample/common/sample_common_venc.h
+--- a/tools/audit_sunxi_mpp.sh
++++ b/tools/audit_sunxi_mpp.sh
+@@ -4,7 +4,6 @@
+ 
+ export LC_ALL=C
+ 
+-readonly EXPECTED_COMMIT="94bb93ad67fd862c5f6fe6c29fbc0f54950e7107"
+ 
+ script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ application_dir="$(CDPATH= cd -- "${script_dir}/.." && pwd)"
+@@ -32,9 +31,21 @@
+     exit 1
+ fi
+ 
+-actual_commit="$(sed -n '1p' "${sdk_root}/UPSTREAM_COMMIT" 2>/dev/null || true)"
+-if [[ "${actual_commit}" != "${EXPECTED_COMMIT}" ]]; then
+-    report_failure "unexpected or missing UPSTREAM_COMMIT"
++if ! python3 - "${sdk_root}" "${manifest}" <<'PYCODE'
++import hashlib,json,sys
++from pathlib import Path
++root=Path(sys.argv[1]); manifest=Path(sys.argv[2])
++meta=json.loads((root/"SDK_SOURCE.json").read_text())
++assert meta["source_kind"]=="tina-built-sdk" and meta["libc"]=="musl"
++assert (root/"BUNDLE_MANIFEST").read_bytes()==manifest.read_bytes(), "reimport changed manifest"
++for name,record in meta["libraries"].items():
++    path=root/name
++    assert path.resolve().is_file() and root.resolve() in path.resolve().parents
++    assert hashlib.sha256(path.read_bytes()).hexdigest()==record["sha256"], name
++print("Provenance: Tina SDK board="+meta["board"])
++PYCODE
++then
++    report_failure "SDK provenance or imported library integrity mismatch"
+ fi
+ 
+ if [[ -f "${sdk_root}/SHA256SUMS" ]]; then
+@@ -94,7 +105,7 @@
+     AW_MPI_VI_CreateVipp \
+     AW_MPI_VO_Enable \
+     AW_MPI_VENC_CreateChn \
+-    AW_MPI_MUX_CreateGrp \
++    AW_MPI_MUX_CreateChn \
+     AW_MPI_DEMUX_CreateChn \
+     AW_MPI_VDEC_CreateChn \
+     AW_MPI_CLOCK_CreateChn \
+@@ -135,7 +146,7 @@
+     fi
+ done
+ for required_layer_gate in \
+-    'kFbGetLayerHandle0' \
++    'queryFramebufferLayer' \
+     'framebufferUiLayer == videoLayer' \
+     'configuredBackendLock != backendLock'; do
+     if ! grep -F "${required_layer_gate}" "${gui_disp_adapter}" >/dev/null; then
+@@ -191,7 +202,7 @@
+     'display.width=800' \
+     'display.height=480' \
+     'display.video_layer=0' \
+-    'display.ui_outside_layer=1' \
++    'display.ui_outside_layer=4' \
+     'display.interface=lcd' \
+     'display.sync=ntsc' \
+     'camera.capture_width=1280' \
+@@ -393,8 +404,8 @@
+         report_failure "$(basename -- "${archive}") contains non-ARM objects"
+     fi
+     if (( hardfloat_count != object_count )); then
+-        report_failure \
+-            "$(basename -- "${archive}") is not consistently ARM hard-float"
++        printf 'NOTE: %s has %d/%d VFP-argument tags; untagged objects require the final ARM link check.\n' \
++            "$(basename -- "${archive}")" "${hardfloat_count}" "${object_count}"
+     fi
+ done < <(find "${sdk_root}/lib" -maxdepth 1 -type f -name '*.a' | sort)
+ 
+@@ -428,6 +439,6 @@
+ 
+ printf 'Static sunxi-mpp audit passed.\n'
+ printf 'Bundle: %s\n' "${sdk_root}"
+-printf 'Commit: %s\n' "${actual_commit}"
++
+ printf 'Scope: manifest/ABI/symbols, SDK-independent paths and product ownership/config invariants.\n'
+ printf 'Not checked: cross-linking, target drivers, ISP tuning or runtime behavior.\n'
+--- /dev/null
++++ b/tools/build_current_sdk.sh
+@@ -0,0 +1,31 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++app_dir="$(CDPATH= cd -- "${script_dir}/.." && pwd)"
++: "${SUNXI_TINA_SDK_ROOT:?Set SUNXI_TINA_SDK_ROOT to the current built SDK}"
++sdk="$(CDPATH= cd -- "${SUNXI_TINA_SDK_ROOT}" && pwd)"
++board="${SUNXI_TINA_BOARD:-v853-100ask}"
++toolchain="${sdk}/prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain"
++cmake_bin="${CMAKE_BIN:-cmake}"
++build_dir="${APPLICATION_BUILD_DIR:-${app_dir}/../build/current-sdk}"
++bundle="${SUNXI_MPP_ROOT:-${app_dir}/third_party/sunxi-mpp-sdk}"
++export STAGING_DIR="${sdk}/out/${board}/staging_dir/target"
++
++# Imports are explicit so an existing bundle is never silently overwritten.
++python3 "${script_dir}/check_sdk_abi.py" --sdk-root "${sdk}" \
++    --bundle "${bundle}" --output "${build_dir}/abi"
++"${cmake_bin}" -S "${app_dir}" -B "${build_dir}" \
++    -DCMAKE_TOOLCHAIN_FILE="${app_dir}/cmake/toolchains/v851s-musl.cmake" \
++    -DV851S_C_COMPILER="${toolchain}/bin/arm-openwrt-linux-muslgnueabi-gcc" \
++    -DV851S_CXX_COMPILER="${toolchain}/bin/arm-openwrt-linux-muslgnueabi-g++" \
++    -DV851S_SYSROOT="${toolchain}" \
++    -DSUNXI_MPP_ROOT="${bundle}" \
++    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
++    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
++    -DCMAKE_INSTALL_PREFIX=/usr \
++    -DAPPLICATION_BUILD_MPP=ON \
++    -DAPPLICATION_BUILD_GUI=OFF \
++    -DAPPLICATION_BUILD_YOLOV8=OFF \
++    -DAPPLICATION_BUILD_MPP_EXAMPLES=OFF "$@"
++"${cmake_bin}" --build "${build_dir}" --parallel "${BUILD_JOBS:-4}"
+--- /dev/null
++++ b/tools/check_sdk_abi.py
+@@ -0,0 +1,94 @@
++#!/usr/bin/env python3
++"""Compile ABI probes against the imported bundle and this SDK; never run ARM code."""
++import argparse
++import hashlib
++import json
++import os
++from pathlib import Path
++import re
++import subprocess
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--sdk-root", required=True, type=Path)
++    parser.add_argument("--bundle", type=Path,
++                        default=Path(__file__).resolve().parents[1]/"third_party/sunxi-mpp-sdk")
++    parser.add_argument("--output", required=True, type=Path)
++    args = parser.parse_args()
++    sdk, bundle, out = args.sdk_root.resolve(), args.bundle.resolve(), args.output.resolve()
++    out.mkdir(parents=True, exist_ok=True)
++    meta = json.loads((bundle/"SDK_SOURCE.json").read_text())
++    for name, expected in meta["sdk_files"].items():
++        assert hashlib.sha256((sdk/name).read_bytes()).hexdigest() == expected, "SDK changed: "+name
++    for name, record in meta["libraries"].items():
++        assert hashlib.sha256((sdk/record["source"]).read_bytes()).hexdigest() == record["sha256"], name
++        assert hashlib.sha256((bundle/name).read_bytes()).hexdigest() == record["sha256"], name
++    toolchain = sdk/"prebuilt/gcc/linux-x86/arm/toolchain-sunxi-musl/toolchain"
++    prefix = toolchain/"bin/arm-openwrt-linux-muslgnueabi-"
++    env = dict(os.environ, STAGING_DIR=str(sdk/"out"/meta["board"]/"staging_dir/target"))
++    arch = ["-DAWCHIP=0x1886", "--sysroot="+str(toolchain), "-mcpu=cortex-a7", "-mfpu=neon-vfpv4", "-mfloat-abi=hard"]
++    def compile_constants(name, code, includes=()):
++        source, assembly = out/(name+".c"), out/(name+".s")
++        source.write_text(code)
++        subprocess.run([str(prefix)+"gcc"]+arch+["-S","-O0"]+
++                       ["-I"+str(x) for x in includes]+[str(source),"-o",str(assembly)],
++                       env=env,check=True)
++        values = {k:int(v)&0xffffffff for k,v in
++                  re.findall(r"(abi_\w+):\n\s*\.word\s+(-?\d+)", assembly.read_text())}
++        assert values, "No compiler constants: "+name
++        return values
++    constants = """
++const unsigned int abi_sensor_config_size = sizeof(struct sensor_config);
++const unsigned int abi_sensor_exp_gain_size = sizeof(struct sensor_exp_gain);
++const unsigned int abi_gain_min_offset = offsetof(struct sensor_config, gain_min);
++const unsigned int abi_mbus_code_offset = offsetof(struct sensor_config, mbus_code);
++const unsigned int abi_cfg_ioctl = VIDIOC_VIN_SENSOR_CFG_REQ;
++const unsigned int abi_exp_gain_ioctl = VIDIOC_VIN_SENSOR_EXP_GAIN;
++"""
++    header = bundle/"include/mpp/middleware/media/LIBRARY/libisp/include/V4l2Camera/sunxi_camera_v2.h"
++    result = {"bundle_sensor":compile_constants("bundle_sensor",
++        '#include <stddef.h>\n#include <sys/ioctl.h>\n#include "'+str(header)+'"\n'+constants)}
++    kernel = (sdk/"lichee/linux-4.9/include/media/sunxi_camera_v2.h").read_text()
++    parts = ["#include <stddef.h>\n#include <sys/ioctl.h>\n#include <linux/videodev2.h>\n"]
++    # Verbatim independent definitions; retain preprocessor guards inside structs.
++    for name in ("sensor_config", "sensor_exp_gain"):
++        parts.append(re.search(r"struct "+name+r"\s*\{.*?\n\};",kernel,re.S).group(0))
++    for name in ("VIDIOC_VIN_SENSOR_CFG_REQ","VIDIOC_VIN_SENSOR_EXP_GAIN"):
++        parts.append(re.search(r"#define "+name+r"\s*\\\n[^\n]+",kernel).group(0))
++    result["kernel_sensor"] = compile_constants("kernel_sensor","\n".join(parts)+"\n"+constants)
++    assert result["bundle_sensor"] == result["kernel_sensor"], "sensor ioctl/struct ABI mismatch"
++    public = """
++#include <mm_comm_vi.h>
++const unsigned int abi_vi_attr_size = sizeof(VI_ATTR_S);
++const unsigned int abi_frame_size = sizeof(VIDEO_FRAME_S);
++const unsigned int abi_frame_info_size = sizeof(VIDEO_FRAME_INFO_S);
++"""
++    for label,root in [
++        ("bundle_public",bundle/"include/mpp/middleware"),
++        ("sdk_public",sdk/"external/eyesee-mpp/middleware/sun8iw21")]:
++        result[label] = compile_constants(label,public,[
++            root/"include/media",root/"include/utils",
++            root/"media/LIBRARY/libisp/include/V4l2Camera"])
++    assert result["bundle_public"] == result["sdk_public"], "public MPP ABI mismatch"
++    app = Path(__file__).resolve().parents[1]
++    uvc = out/"uvc_kernel.cpp"
++    uvc.write_text('#include <cstddef>\n#include "'+
++        str(app/"services/camera-mpp-service/include/camera/mpp/UvcGadget.hpp")+'"\n#include "'+
++        str(sdk/"lichee/linux-4.9/drivers/usb/gadget/function/uvc.h")+'''"
++using namespace camera::mpp::uvc;
++static_assert(sizeof(RequestData)==sizeof(uvc_request_data), "UVC request size");
++static_assert(sizeof(Event)==sizeof(uvc_event), "UVC event size");
++static_assert(offsetof(RequestData,data)==offsetof(uvc_request_data,data), "UVC data offset");
++static_assert(kSendResponse==UVCIOC_SEND_RESPONSE, "UVC response ioctl");
++static_assert(kEventConnect==UVC_EVENT_CONNECT && kEventDisconnect==UVC_EVENT_DISCONNECT &&
++              kEventStreamOn==UVC_EVENT_STREAMON && kEventStreamOff==UVC_EVENT_STREAMOFF &&
++              kEventSetup==UVC_EVENT_SETUP && kEventData==UVC_EVENT_DATA, "UVC events");
++''')
++    subprocess.run([str(prefix)+"g++"]+arch+["-std=c++14","-c",str(uvc),"-o",str(out/"uvc_kernel.o")],
++                   env=env,check=True)
++    result["uvc_kernel_abi"]="compile-time assertions passed"
++    (out/"results.json").write_text(json.dumps(result,indent=2)+"\n")
++    print(json.dumps(result,indent=2))
++    print("PASS: bundle/source identity, ARM sensor/public ABI and kernel UVC ABI.")
++if __name__ == "__main__":
++    main()
+--- a/tools/fetch_sunxi_mpp.sh
++++ b/tools/fetch_sunxi_mpp.sh
+@@ -1,94 +1,13 @@
+ #!/usr/bin/env bash
+-
++# Production dependencies come from the selected built Tina SDK.
+ set -euo pipefail
+-
+-readonly UPSTREAM_URL="https://github.com/ohdarling/Yuzukilizard.git"
+-readonly UPSTREAM_COMMIT="94bb93ad67fd862c5f6fe6c29fbc0f54950e7107"
+-
+ script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+-application_dir="$(CDPATH= cd -- "${script_dir}/.." && pwd)"
+-manifest="${application_dir}/third_party/sunxi-mpp.manifest"
+-destination="${SUNXI_MPP_DESTINATION:-${application_dir}/third_party/sunxi-mpp-sdk}"
+-
+-if [[ -e "${destination}" ]]; then
+-    printf 'Destination already exists: %s\n' "${destination}" >&2
+-    printf 'Remove or relocate that exact directory before fetching again.\n' >&2
+-    exit 1
++if [[ -z "${SUNXI_TINA_SDK_ROOT:-}" ]]; then
++    printf 'Set SUNXI_TINA_SDK_ROOT to the current built SDK; GitHub binary bundles are not imported.\n' >&2
++    exit 2
+ fi
+-
+-if [[ ! -f "${manifest}" ]]; then
+-    printf 'Manifest not found: %s\n' "${manifest}" >&2
+-    exit 1
++args=(--sdk-root "${SUNXI_TINA_SDK_ROOT}" --board "${SUNXI_TINA_BOARD:-v853-100ask}")
++if [[ -n "${SUNXI_MPP_DESTINATION:-}" ]]; then
++    args+=(--destination "${SUNXI_MPP_DESTINATION}")
+ fi
+-
+-work_dir="$(mktemp -d /tmp/v851s-sunxi-mpp-fetch.XXXXXX)"
+-checkout_dir="${work_dir}/Yuzukilizard"
+-stage_dir="${work_dir}/sunxi-mpp-sdk"
+-
+-cleanup() {
+-    rm -rf -- "${work_dir}"
+-}
+-trap cleanup EXIT
+-
+-if [[ -n "${SUNXI_MPP_SOURCE_CHECKOUT:-}" ]]; then
+-    checkout_dir="$(CDPATH= cd -- "${SUNXI_MPP_SOURCE_CHECKOUT}" && pwd)"
+-    actual_commit="$(git -C "${checkout_dir}" rev-parse HEAD)"
+-    if [[ "${actual_commit}" != "${UPSTREAM_COMMIT}" ]]; then
+-        printf 'Reference checkout is not at the pinned commit: %s\n' \
+-            "${actual_commit}" >&2
+-        exit 1
+-    fi
+-else
+-    git clone --filter=blob:none --no-checkout "${UPSTREAM_URL}" "${checkout_dir}"
+-    git -C "${checkout_dir}" sparse-checkout init --cone
+-    git -C "${checkout_dir}" sparse-checkout set \
+-        Software/sunxi-mpp \
+-        Software/BSP/openwrt/package/npu/viplite-driver/include
+-    git -C "${checkout_dir}" checkout --detach "${UPSTREAM_COMMIT}"
+-fi
+-
+-source_root="${checkout_dir}/Software/sunxi-mpp"
+-mkdir -p "${stage_dir}/include" "${stage_dir}/lib"
+-cp -a "${source_root}/include/." "${stage_dir}/include/"
+-
+-while read -r group relative_path extra; do
+-    if [[ -z "${group:-}" || "${group}" == \#* ]]; then
+-        continue
+-    fi
+-    if [[ -n "${extra:-}" ]]; then
+-        printf 'Malformed manifest line: %s %s %s\n' \
+-            "${group}" "${relative_path}" "${extra}" >&2
+-        exit 1
+-    fi
+-    source_file="${source_root}/${relative_path}"
+-    if [[ ! -e "${source_file}" && ! -L "${source_file}" ]]; then
+-        printf 'Upstream file is missing: %s\n' "${relative_path}" >&2
+-        exit 1
+-    fi
+-    mkdir -p "${stage_dir}/$(dirname -- "${relative_path}")"
+-    cp -a "${source_file}" "${stage_dir}/${relative_path}"
+-done < "${manifest}"
+-
+-# The standalone sunxi-mpp tree ships NPU libraries but omits their public API.
+-# Keep these headers in the ignored local bundle; see third_party/README.md for
+-# the upstream proprietary notice and redistribution caveat.
+-viplite_headers="${checkout_dir}/Software/BSP/openwrt/package/npu/viplite-driver/include"
+-mkdir -p "${stage_dir}/include/viplite"
+-cp -a "${viplite_headers}/vip_lite.h" "${stage_dir}/include/viplite/"
+-cp -a "${viplite_headers}/vip_lite_common.h" "${stage_dir}/include/viplite/"
+-
+-# libasound has SONAME libasound.so.2 but upstream only provides libasound.so.
+-ln -s libasound.so "${stage_dir}/lib/libasound.so.2"
+-
+-printf '%s\n' "${UPSTREAM_URL}" > "${stage_dir}/UPSTREAM_URL"
+-printf '%s\n' "${UPSTREAM_COMMIT}" > "${stage_dir}/UPSTREAM_COMMIT"
+-(
+-    cd "${stage_dir}"
+-    find include lib -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+-)
+-
+-mkdir -p "$(dirname -- "${destination}")"
+-mv "${stage_dir}" "${destination}"
+-
+-printf 'Prepared standalone sunxi-mpp bundle at:\n  %s\n' "${destination}"
+-printf 'Pinned upstream commit:\n  %s\n' "${UPSTREAM_COMMIT}"
++exec python3 "${script_dir}/import_sunxi_mpp.py" "${args[@]}"
+--- /dev/null
++++ b/tools/import_sunxi_mpp.py
+@@ -0,0 +1,101 @@
++#!/usr/bin/env python3
++"""Import a standalone bundle from this board's built Tina SDK, never GitHub binaries."""
++import argparse
++import hashlib
++import json
++import os
++from pathlib import Path
++import shutil
++import tempfile
++
++APP = Path(__file__).resolve().parents[1]
++def digest(path):
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--sdk-root", required=True, type=Path)
++    parser.add_argument("--board", default="v853-100ask")
++    parser.add_argument("--destination", type=Path, default=APP/"third_party/sunxi-mpp-sdk")
++    args = parser.parse_args()
++    sdk = args.sdk_root.resolve()
++    dest = args.destination.absolute()
++    if dest.exists():
++        parser.error("Destination exists; choose a new destination to preserve it: " + str(dest))
++    config = (sdk/".config").read_text()
++    if 'CONFIG_TARGET_BOARD="%s"' % args.board not in config:
++        parser.error("SDK .config TARGET_BOARD does not match --board")
++    if 'CONFIG_LIBC="musl"' not in config:
++        parser.error("This Application toolchain requires the musl SDK")
++    staging = sdk/"out"/args.board/"staging_dir/target"
++    headers = staging/"usr/include/eyesee-mpp"
++    libs = staging/"usr/lib/eyesee-mpp"
++    if not headers.is_dir() or not libs.is_dir():
++        parser.error("Build/install the SDK MPP package into staging_dir first")
++    manifest = APP/"third_party/sunxi-mpp.manifest"
++    entries = []
++    for line in manifest.read_text().splitlines():
++        if not line.strip() or line.lstrip().startswith("#"):
++            continue
++        group, relative = line.split()
++        if Path(relative).is_absolute() or ".." in Path(relative).parts:
++            parser.error("Unsafe manifest path: " + relative)
++        if group == "record_sample":
++            source = sdk/"external/eyesee-mpp/middleware/sun8iw21"/relative
++        else:
++            source = (libs if (libs/Path(relative).name).exists() else staging/"usr/lib")/Path(relative).name
++        if not source.exists():
++            parser.error("Current SDK artifact missing: " + str(source))
++        entries.append((group, relative, source))
++    dest.parent.mkdir(parents=True, exist_ok=True)
++    stage = Path(tempfile.mkdtemp(prefix=".sunxi-mpp-import-", dir=str(dest.parent)))
++    sources = {}
++    try:
++        shutil.copytree(str(headers), str(stage/"include/mpp"))
++        uapi = stage/"include/kernel-uapi/video"
++        uapi.mkdir(parents=True)
++        shutil.copy2(str(sdk/"lichee/linux-4.9/include/video/sunxi_display2.h"),
++                     str(uapi/"sunxi_display2.h"))
++        rtsp = headers/"system/private/rtsp/IPCProgram/interface"
++        shutil.copytree(str(rtsp), str(stage/"include/rtsp"))
++        shutil.copytree(str(staging/"usr/include/viplite-driver"), str(stage/"include/viplite"))
++        for group, relative, source in entries:
++            target = stage/relative
++            target.parent.mkdir(parents=True, exist_ok=True)
++            if source.is_symlink():
++                link = os.readlink(str(source))
++                if Path(link).name != link:
++                    raise RuntimeError("Non-local library symlink: " + str(source))
++                target.symlink_to(link)
++            else:
++                shutil.copy2(str(source), str(target))
++            sources[relative] = {"source":str(source.relative_to(sdk)), "sha256":digest(source)}
++        for path in stage.rglob("*"):
++            if path.is_symlink() and (not path.exists() or stage not in path.resolve().parents):
++                raise RuntimeError("Incomplete or escaping library alias: " + str(path))
++        shutil.copy2(str(manifest), str(stage/"BUNDLE_MANIFEST"))
++        names = {"VDEC_H264":"mpp_vdec_h264", "VDEC_H265":"mpp_vdec_h265",
++                 "VDEC_JPEG":"mpp_vdec_jpeg", "VENC_H264":"mpp_venc_h264",
++                 "VENC_H265":"mpp_venc_h265", "VENC_JPEG":"mpp_venc_jpeg"}
++        features = {name: int("CONFIG_"+key+"=y" in config.splitlines())
++                    for name,key in names.items()}
++        (stage/"SDK_FEATURES.cmake").write_text("".join(
++            "set(SUNXI_MPP_%s %d)\n" % item for item in sorted(features.items())))
++        files = [".config", "lichee/linux-4.9/include/media/sunxi_camera_v2.h",
++            "lichee/linux-4.9/include/video/sunxi_display2.h",
++            "external/eyesee-mpp/middleware/sun8iw21/media/LIBRARY/libisp/isp_version.h"]
++        metadata = {"schema":1, "source_kind":"tina-built-sdk", "board":args.board,
++            "sdk_root_at_import":str(sdk), "libc":"musl", "features":features,
++            "sdk_files":{name:digest(sdk/name) for name in files}, "libraries":sources}
++        (stage/"SDK_SOURCE.json").write_text(json.dumps(metadata, indent=2)+"\n")
++        all_files = sorted(p for p in stage.rglob("*") if p.is_file() and not p.is_symlink())
++        (stage/"SHA256SUMS").write_text("".join(
++            "%s  %s\n" % (digest(p),p.relative_to(stage)) for p in all_files))
++        stage.rename(dest)
++    except Exception:
++        shutil.rmtree(str(stage))
++        raise
++    print("Imported %d manifest artifacts from %s into %s" % (len(entries), args.board, dest))
++    print("Codec build features: " + json.dumps(features,sort_keys=True))
++if __name__ == "__main__":
++    main()

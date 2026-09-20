@@ -1,0 +1,37 @@
+--- a/opencv_build/modules/videoio/cmake/detect_vinisp.cmake
++++ b/opencv_build/modules/videoio/cmake/detect_vinisp.cmake
+@@ -1,13 +1,11 @@
+-# --- VINISP ---
+-if(NOT HAVE_VINISP)
+-  set(CMAKE_REQUIRED_QUIET TRUE) # for check_include_file
+-  check_include_file(AWIspApi.h HAVE_VINISP)
+-  if(HAVE_VINISP)
+-    set(HAVE_VINISP TRUE)
+-    set(defs)
+-    list(APPEND defs "HAVE_VINISP")
+-    ocv_add_external_target(vinisp "" "" "${defs}")
+-  endif()
++# Bind only to the adapter rebuilt with this SDK's ISP archives.
++if(NOT SUNXI_ISP_API_ROOT)
++  message(FATAL_ERROR "Set SUNXI_ISP_API_ROOT to the current SDK ISP adapter prefix")
+ endif()
+-
+-set(HAVE_VINISP ${HAVE_VINISP} PARENT_SCOPE)
++find_library(SUNXI_AWISP_LIBRARY AWIspApi PATHS "${SUNXI_ISP_API_ROOT}/lib" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
++if(NOT SUNXI_AWISP_LIBRARY OR NOT EXISTS "${SUNXI_ISP_API_ROOT}/include/AWIspApi.h" OR NOT EXISTS "${SUNXI_ISP_API_ROOT}/include/sunxi_camera_v2.h")
++  message(FATAL_ERROR "The current SDK AWIspApi headers/library are missing")
++endif()
++set(HAVE_VINISP TRUE)
++ocv_add_external_target(vinisp "${SUNXI_ISP_API_ROOT}/include" "${SUNXI_AWISP_LIBRARY}" "HAVE_VINISP")
++set(HAVE_VINISP TRUE PARENT_SCOPE)
+--- a/opencv_build/modules/videoio/CMakeLists.txt
++++ b/opencv_build/modules/videoio/CMakeLists.txt
+@@ -197,7 +197,7 @@
+ 
+ if(TARGET ocv.3rdparty.vinisp)
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__USE_VIN_ISP__")
+-  ocv_target_link_libraries(${the_module} LINK_PRIVATE m isp isp_ini AWIspApi)
++  ocv_target_link_libraries(${the_module} LINK_PRIVATE ocv.3rdparty.vinisp)
+ endif()
+ 
+ # copy FFmpeg dll to the output folder

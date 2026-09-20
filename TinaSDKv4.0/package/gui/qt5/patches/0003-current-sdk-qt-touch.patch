@@ -1,0 +1,66 @@
+--- a/qtbase/src/platformsupport/input/evdevtouch/qevdevtouchhandler.cpp
++++ b/qtbase/src/platformsupport/input/evdevtouch/qevdevtouchhandler.cpp
+@@ -206,6 +206,8 @@
+     int rotationAngle = 0;
+     bool invertx = false;
+     bool inverty = false;
++    bool forceSingleTouch = false;
++    int rangeX = 0, rangeY = 0;
+     for (int i = 0; i < args.count(); ++i) {
+         if (args.at(i).startsWith(QLatin1String("rotate"))) {
+             QString rotateArg = args.at(i).section(QLatin1Char('='), 1, 1);
+@@ -221,6 +223,19 @@
+                     break;
+                 }
+             }
++        } else if (args.at(i) == QLatin1String("single-touch")) {
++            forceSingleTouch = true;
++        } else if (args.at(i).startsWith(QLatin1String("range="))) {
++            const QStringList bounds = args.at(i).mid(6).split(QLatin1Char('x'));
++            bool xok = false, yok = false;
++            if (bounds.size() == 2) {
++                rangeX = bounds.at(0).toInt(&xok);
++                rangeY = bounds.at(1).toInt(&yok);
++            }
++            if (!xok || !yok || rangeX <= 0 || rangeY <= 0) {
++                qWarning("evdevtouch: invalid range; expected positive range=XxY");
++                rangeX = rangeY = 0;
++            }
+         } else if (args.at(i) == QLatin1String("invertx")) {
+             invertx = true;
+         } else if (args.at(i) == QLatin1String("inverty")) {
+@@ -324,6 +339,21 @@
+         }
+         qCDebug(qLcEvdevTouch, "evdevtouch: found ti-tsc, overriding: min X: %d max X: %d min Y: %d max Y: %d",
+                 d->hw_range_x_min, d->hw_range_x_max, d->hw_range_y_min, d->hw_range_y_max);
++    }
++
++    // Explicit opt-in for BSPs that emit one MT point plus BTN_TOUCH and
++    // SYN_REPORT, without advertising slots or emitting SYN_MT_REPORT.
++    // Read the native MT axis metadata first, then select single-point handling.
++    if (forceSingleTouch) {
++        d->m_typeB = false;
++        d->m_singleTouch = true;
++        qCDebug(qLcEvdevTouch, "evdevtouch: explicit single-touch compatibility");
++    }
++    if (rangeX > 0 && rangeY > 0) {
++        d->hw_range_x_min = d->hw_range_y_min = 0;
++        d->hw_range_x_max = rangeX;
++        d->hw_range_y_max = rangeY;
++        qCDebug(qLcEvdevTouch, "evdevtouch: explicit range=0..%d,0..%d", rangeX, rangeY);
+     }
+ 
+     bool grabSuccess = !ioctl(m_fd, EVIOCGRAB, (void *) 1);
+--- a/qtbase/src/platformsupport/devicediscovery/qdevicediscovery_static.cpp
++++ b/qtbase/src/platformsupport/devicediscovery/qdevicediscovery_static.cpp
+@@ -184,7 +184,9 @@
+                 return true;
+             }
+         } else if (testBit(ABS_MT_POSITION_X, bitsAbs) &&
+-                   testBit(ABS_MT_POSITION_Y, bitsAbs)) {
++                   testBit(ABS_MT_POSITION_Y, bitsAbs) &&
++                   ((m_types & Device_Touchscreen) ||
++                    ((m_types & Device_Touchpad) && testBit(BTN_TOOL_FINGER, bitsKey)))) {
+             qCDebug(lcDD) << "Found new-style touchscreen at" << device;
+             return true;
+         }

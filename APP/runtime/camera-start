@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+APP_ROOT="${CAMERA_APP_ROOT:-$(CDPATH= cd -- "$HERE/../.." && pwd)}"
+ENV_FILE="$APP_ROOT/etc/v851s-camera/board-env.sh"
+if [ -r "$ENV_FILE" ]; then . "$ENV_FILE"; fi
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/v851s-camera/qt}"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+exec "$APP_ROOT/usr/bin/camera-gui" \
+ --service "$APP_ROOT/usr/bin/camera-mpp-service" \
+ --service-config "${CAMERA_CONFIG:-$APP_ROOT/etc/v851s-camera/mpp-service.conf}" \
+ --yolo "$APP_ROOT/usr/libexec/v851s-camera/camera-yolo-worker" \
+ --yolo-model "${CAMERA_YOLO_MODEL:-$APP_ROOT/etc/v851s-camera/yolov8.nb}" \
+ --yolo-classes "${CAMERA_YOLO_CLASSES:-$APP_ROOT/etc/v851s-camera/yolov8-classes.txt}" "$@"

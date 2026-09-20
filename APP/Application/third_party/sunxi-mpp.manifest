@@ -1,0 +1,121 @@
+# group       path relative to the locally imported current-SDK bundle
+#
+# Current SDK library closure used by Application:
+# VI/ISP + VO preview + VENC/RTSP + VENC/MUX recording + video-only playback.
+# The product does not create ADEC/AO, but some audio-named parser/mux/runtime
+# artifacts remain because the vendor archives use them as transitive helpers.
+# Vendor component/parser registries pull in helpers even for video-only use.
+
+core          lib/libz.a
+core          lib/liblog.a
+core          lib/libion.a
+core          lib/libaw_mpp.a
+core          lib/libmedia_utils.a
+core          lib/libMemAdapter.a
+core          lib/libVE.a
+core          lib/libcdc_base.a
+core          lib/libcedarxstream.a
+core          lib/libsample_confparser.a
+core          lib/libcdx_common.a
+core          lib/libcdx_base.a
+core          lib/libResample.a
+core          lib/libexpat.a
+core          lib/libAudioVps.a
+core          lib/libDrc.a
+core          lib/libAec.a
+core          lib/libAns.a
+core          lib/libcedarx_tencoder.a
+core          lib/libcedarx_aencoder.a
+core          lib/libadecoder.a
+core          lib/libaac.a
+core          lib/libaacenc.a
+core          lib/libwav.a
+
+vi            lib/libISP.a
+vi            lib/libisp_dev.a
+vi            lib/libisp_ini.a
+vi            lib/libiniparser.a
+vi            lib/libisp_ae.a
+vi            lib/libisp_af.a
+vi            lib/libisp_afs.a
+vi            lib/libisp_awb.a
+vi            lib/libisp_base.a
+vi            lib/libisp_gtm.a
+vi            lib/libisp_iso.a
+vi            lib/libisp_math.a
+vi            lib/libisp_md.a
+vi            lib/libisp_pltm.a
+vi            lib/libisp_rolloff.a
+
+vo            lib/libcedarxrender.a
+vo            lib/libhwdisplay.a
+
+venc          lib/libvencoder.a
+venc          lib/libvenc_common.a
+venc          lib/libvenc_h264.a
+venc          lib/libvenc_h265.a
+venc          lib/libvenc_jpeg.a
+venc          lib/libvenc_base.a
+
+muxer         lib/libmuxers.a
+muxer         lib/libmp4_muxer.a
+muxer         lib/libraw_muxer.a
+muxer         lib/libmpeg2ts_muxer.a
+muxer         lib/libaac_muxer.a
+muxer         lib/libmp3_muxer.a
+muxer         lib/libwav_muxer.a
+muxer         lib/libffavutil.a
+muxer         lib/libFsWriter.a
+
+rtsp          lib/libTinyServer.a
+
+# Local-file container parsing used by the video-only PlaybackPipeline.  Audio
+# and subtitle tracks are disabled by the application even when present.
+demux         lib/libcedarxdemuxer.a
+demux         lib/libcdx_parser.a
+demux         lib/libcdx_stream.a
+demux         lib/libcdx_aac_parser.a
+demux         lib/libcdx_id3v2_parser.a
+demux         lib/libcdx_mp3_parser.a
+demux         lib/libcdx_mov_parser.a
+demux         lib/libcdx_mpg_parser.a
+demux         lib/libcdx_ts_parser.a
+demux         lib/libcdx_wav_parser.a
+demux         lib/libcdx_file_stream.a
+demux         lib/libcdx_ogg_parser.a
+demux         lib/libcdx_ape_parser.a
+demux         lib/libcdx_flac_parser.a
+demux         lib/libcdx_amr_parser.a
+demux         lib/libcdx_http_stream.a
+demux         lib/libcdx_tcp_stream.a
+demux         lib/libssl.a
+demux         lib/libcrypto.a
+
+# Hardware video decoder backends.  The actual accepted codec/profile matrix
+# remains a board-test result; listing an archive here is not a support claim.
+vdec          lib/libvdecoder.a
+vdec          lib/libvideoengine.a
+vdec          lib/libawh264.a
+vdec          lib/libawmjpeg.a
+
+# Link-time and target-runtime shared libraries used by the vendor archives.
+runtime_link  lib/libglog.so
+runtime_link  lib/libunwind.so
+runtime_link  lib/libasound.so
+runtime_data  lib/libglog.so.0
+runtime_data  lib/libglog.so.0.3.5
+runtime_data  lib/libunwind.so.8
+runtime_data  lib/libunwind.so.8.0.1
+runtime_data  lib/libasound.so.2
+runtime_data  lib/libasound.so.2.0.0
+
+# Optional NPU runtime and viplite-driver headers from the same SDK staging area.
+npu           lib/libVIPlite.so
+npu           lib/libVIPuser.so
+
+record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer.c
+record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer.h
+record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer_conf.h
+record_sample sample/sample_virvi2venc2muxer/sample_vi2venc2muxer.conf
+record_sample sample/common/sample_common_venc.c
+record_sample sample/common/sample_common_venc.h

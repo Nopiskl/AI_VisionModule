@@ -8,9 +8,9 @@ PKG_RELEASE:=1
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
 define Package/$(PKG_NAME)
-  SUBMENU:=NPU
+  SUBMENU:=add_patch
   SECTION:=utils
-  CATEGORY:=Allwinner
+  CATEGORY:=nopiskl_apps
   TITLE:=lenet demo
   DEPENDS:=+libjpeg-turbo +viplite-driver
 endef
@@ -39,11 +39,11 @@ define Package/$(PKG_NAME)/install
 endef
 
 define Package/$(PKG_NAME)-model
-  SUBMENU:=NPU
+  SUBMENU:=add_patch
   SECTION:=utils
-  CATEGORY:=Allwinner
+  CATEGORY:=nopiskl_apps
   TITLE:=lenet demo model (70 KB)
-  DEPENDS:=@lenet
+  DEPENDS:=+lenet
 endef
 
 define Package/$(PKG_NAME)-model/install

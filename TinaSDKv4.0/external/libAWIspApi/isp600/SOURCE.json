@@ -1,0 +1,8 @@
+{
+  "sdk_root": "/home/ubuntu/tina-v853-100ask",
+  "original_inputs": {
+    "external/libAWIspApi/isp522/AWIspApi.c": "8ae45a511c335c97e3e71b21a12a96e540af90e0ccc2567a4aff70dc3095a3e2",
+    "external/libAWIspApi/isp522/AWIspApi.h": "06bef2d5b45d0583c9a513967a1546ea196f62e4502b19d7b66578a67cd799c1"
+  },
+  "bundle_metadata": "../../v851s-camera-handoff-20260915/Application/third_party/sunxi-mpp-sdk/SDK_SOURCE.json"
+}

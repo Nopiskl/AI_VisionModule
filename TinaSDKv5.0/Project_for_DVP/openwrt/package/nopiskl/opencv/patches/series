@@ -1,0 +1,9 @@
+0001-disable-download-ade.patch
+0002-disable-download-xfeatures2d-i.patch
+0002-disable-download-xfeatures2d-cmake.patch
+0003-disable-download-face_landmark_model_dat.patch
+0004-support-sunxi-vin-camera.patch
+0005-01-plane-storage.patch
+0005-02-isp-lifecycle.patch
+0005-03-layout-guards.patch
+0005-04-sdk-library-link.patch

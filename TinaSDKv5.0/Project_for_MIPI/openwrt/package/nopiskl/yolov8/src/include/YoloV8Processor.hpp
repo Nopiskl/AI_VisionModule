@@ -11,7 +11,7 @@ public:
     struct Config
     {
         std::vector<std::string> classes;
-        cv::Size imgSize = {.width = 640, .height = 640};
+        cv::Size imgSize = {640, 640};
         float rectConfidenceThreshold = 0.25f;
         float iouThreshold = 0.45f;
     };

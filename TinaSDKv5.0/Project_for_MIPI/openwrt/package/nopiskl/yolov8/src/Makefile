@@ -1,29 +1,22 @@
-CXXFLAGS += -MMD -MP
+.DEFAULT_GOAL := all
 
-INCLUDES += -Iinclude
-INCLUDES += -I$(STAGING_DIR)/usr/include/opencv4
-
-LIBS     += -lpthread -ldl -lrt -lVIPlite -lopencv_videoio -lopencv_imgcodecs -lopencv_ml -lopencv_imgproc -lopencv_dnn -lopencv_core
-
-BIN=yolov8
-
-SRCS += ${wildcard *.cpp}
-OBJS := $(addsuffix .o, $(basename $(SRCS)))
+BIN := yolov8
+SRCS := $(wildcard *.cpp)
+OBJS := $(SRCS:.cpp=.o)
 DEPS := $(OBJS:.o=.d)
+INCLUDES := -Iinclude -I$(STAGING_DIR)/usr/include/opencv4
+LIBS := -lVIPlite -lopencv_videoio -lopencv_imgproc -lopencv_dnn -lopencv_core -lpthread
 
-# Rules
+.PHONY: all clean
+all: $(BIN)
 
 -include $(DEPS)
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 
 $(BIN): $(OBJS)
-	$(CXX) $(OBJS) $(LDFLAGS) ${LIBS} -o $@
-
-all: $(BIN) 
+	$(CXX) $(OBJS) $(LDFLAGS) $(LIBS) -o $@
 
 clean:
 	rm -f $(BIN) $(OBJS) $(DEPS)
-
-.PHONY: all clean

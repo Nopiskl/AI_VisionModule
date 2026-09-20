@@ -1,0 +1,28 @@
+# Local release artifacts. Upload these files as GitHub Release assets instead
+# of committing them to normal Git history.
+/release-assets/
+
+# APP build output and the complete offline development environment. These
+# paths are restored by the release assets documented in RELEASE_ASSETS.md.
+/APP/build/
+/APP/install/
+/APP/sdk-dev/
+/APP/app-runtime*.tar.gz
+/APP/app-runtime*.tar.zst
+
+# Generated/imported MPP SDK bundle required by APP/build.sh. It is included in
+# the APP sdk-dev Release asset and restored to this exact path.
+/APP/Application/third_party/sunxi-mpp-sdk/
+
+# Original Qt/OpenCV/ADE source archives. They remain in the local working tree
+# and are packaged with their original paths in the source-archives asset.
+/TinaSDKv4.0/dl/
+/TinaSDKv5.0/Project_for_*/platform/thirdparty/gui/qt/*.tar
+/TinaSDKv5.0/Project_for_*/platform/thirdparty/gui/qt/*.tar.gz
+/TinaSDKv5.0/Project_for_*/platform/thirdparty/gui/qt/*.tar.xz
+/TinaSDKv5.0/Project_for_*/platform/thirdparty/vision/opencv/*.zip
+
+# Local editor and temporary files.
+/.vscode/
+*.swp
+*.tmp

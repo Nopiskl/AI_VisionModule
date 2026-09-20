@@ -1,0 +1,133 @@
+--- a/opencv_build/modules/videoio/src/cap_v4l.cpp
++++ b/opencv_build/modules/videoio/src/cap_v4l.cpp
+@@ -281,10 +281,12 @@
+     // This is dequeued buffer. It used for to put it back in the queue.
+     // The buffer is valid only if capture->bufferIndex >= 0
+     v4l2_buffer buffer;
++    v4l2_plane planes[VIDEO_MAX_PLANES];
+ 
+     Buffer() : start(NULL), length(0)
+     {
+         buffer = v4l2_buffer();
++        memset(planes, 0, sizeof(planes));
+     }
+ };
+ 
+@@ -760,6 +762,7 @@
+     size_t maxLength = 0;
+     for (unsigned int n_buffers = 0; n_buffers < req.count; ++n_buffers) {
+         v4l2_buffer buf = v4l2_buffer();
++    v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+         buf.memory = V4L2_MEMORY_MMAP;
+         buf.index = n_buffers;
+ 
+@@ -768,7 +771,7 @@
+ 		else if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+ 			buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+ 			buf.length = form.fmt.pix_mp.num_planes;
+-			buf.m.planes =  (struct v4l2_plane *)calloc(buf.length, sizeof(struct v4l2_plane));
++			buf.m.planes =  planes;
+ 		}
+ 
+         if (!tryIoctl(VIDIOC_QUERYBUF, &buf)) {
+@@ -808,7 +811,7 @@
+ 			if (form.fmt.pix_mp.num_planes > 1)
+ 		        fprintf(stderr, "form.fmt.pix_mp.num_planes > 1, form.fmt.pix_mp.num_planes %d", form.fmt.pix_mp.num_planes);
+ 
+-			free(buf.m.planes);
++			
+ 		}
+     }
+     if (maxLength > 0) {
+@@ -898,6 +901,7 @@
+ bool CvCaptureCAM_V4L::read_frame_v4l2()
+ {
+     v4l2_buffer buf = v4l2_buffer();
++    v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+     buf.memory = V4L2_MEMORY_MMAP;
+ 
+ 	if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE)
+@@ -905,15 +909,14 @@
+ 	else if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+ 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+ 		buf.length = form.fmt.pix_mp.num_planes;
+-		buf.m.planes = (struct v4l2_plane *)calloc(buf.length, sizeof(struct v4l2_plane));
++		buf.m.planes = planes;
+ 	}
+ 
+     while (!tryIoctl(VIDIOC_DQBUF, &buf)) {
+         if (errno == EIO && !(buf.flags & (V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE))) {
+             // Maybe buffer not in the queue? Try to put there
+             if (!tryIoctl(VIDIOC_QBUF, &buf)) {
+-				if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+-					free(buf.m.planes);
++				
+                 return false;
+ 			}
+             continue;
+@@ -921,16 +924,26 @@
+         /* display the error and stop processing */
+         returnFrame = false;
+         perror("VIDIOC_DQBUF");
+-		if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+-			free(buf.m.planes);
+-        return false;
+-    }
+-
+-    assert(buf.index < req.count);
+-    assert(buffers[buf.index].length == buf.length);
+-
+-    //We shouldn't use this buffer in the queue while not retrieve frame from it.
++		
++        return false;
++    }
++
++    if (buf.index >= req.count || buf.index >= MAX_V4L_BUFFERS)
++        return false;
++    const bool multiplane = buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    const size_t used = multiplane ? buf.m.planes[0].bytesused : buf.bytesused;
++    const size_t length = multiplane ? buf.m.planes[0].length : buf.length;
++    if (length > buffers[buf.index].length || used > buffers[buf.index].length ||
++        (multiplane && buf.m.planes[0].data_offset != 0))
++        return false;
++
++    // Retain the plane descriptor until QBUF, without allocating once per frame.
+     buffers[buf.index].buffer = buf;
++    if (multiplane) {
++        buffers[buf.index].planes[0] = buf.m.planes[0];
++        buffers[buf.index].buffer.m.planes = buffers[buf.index].planes;
++        buffers[buf.index].buffer.bytesused = static_cast<__u32>(used);
++    }
+     bufferIndex = buf.index;
+ 
+     //set timestamp in capture struct to be timestamp of most recent frame
+@@ -974,6 +987,7 @@
+         bufferIndex = -1;
+         for (__u32 index = 0; index < req.count; ++index) {
+             v4l2_buffer buf = v4l2_buffer();
++    v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+ 
+             buf.memory = V4L2_MEMORY_MMAP;
+             buf.index = index;
+@@ -983,18 +997,16 @@
+ 			else if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+ 				buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+ 				buf.length = form.fmt.pix_mp.num_planes;
+-				buf.m.planes = (struct v4l2_plane *)calloc(buf.length, sizeof(struct v4l2_plane));
++				buf.m.planes = planes;
+ 			}
+ 
+             if (!tryIoctl(VIDIOC_QBUF, &buf)) {
+                 perror("VIDIOC_QBUF");
+-				if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+-					free(buf.m.planes);
++				
+                 return false;
+             }
+ 
+-			if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+-				free(buf.m.planes);
++			
+         }
+ 
+         if(!streaming(true)) {

@@ -8,9 +8,9 @@ PKG_RELEASE:=1
 PKG_BUILD_DIR := $(BUILD_DIR)/$(PKG_NAME)
 
 define Package/$(PKG_NAME)
-  SUBMENU:=NPU
+  SUBMENU:=add_patch
   SECTION:=utils
-  CATEGORY:=Allwinner
+  CATEGORY:=nopiskl_apps
   TITLE:=yolov3 demo
   DEPENDS:=+libjpeg-turbo +viplite-driver
 endef
@@ -39,11 +39,11 @@ define Package/$(PKG_NAME)/install
 endef
 
 define Package/$(PKG_NAME)-model
-  SUBMENU:=NPU
+  SUBMENU:=add_patch
   SECTION:=utils
-  CATEGORY:=Allwinner
+  CATEGORY:=nopiskl_apps
   TITLE:=yolov3 test demo model (37 MB)
-  DEPENDS:=@yolov3
+  DEPENDS:=+yolov3
 endef
 
 define Package/$(PKG_NAME)-model/install

@@ -2,15 +2,26 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=yolov8
 PKG_VERSION:=1.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
+PKG_BUILD_PARALLEL:=1
 
 include $(INCLUDE_DIR)/package.mk
 
 define Package/$(PKG_NAME)
-  SECTION:=Application
-  CATEGORY:=Application
-  TITLE:=yolov8
-  DEPENDS:=+viplite-driver +opencv +libstdcpp
+  SECTION:=utils
+  CATEGORY:=nopiskl_apps
+  SUBMENU:=add_patch
+  TITLE:=YOLOv8 NPU camera demo (OpenCV 4.1)
+  DEPENDS:=+viplite-driver +opencv +libstdcpp +libpthread
+endef
+
+define Build/Compile
+	$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \
+		CXX="$(TARGET_CXX)" \
+		CPPFLAGS="$(TARGET_CPPFLAGS)" \
+		CXXFLAGS="$(filter-out -std=%,$(TARGET_CXXFLAGS)) -std=c++11" \
+		LDFLAGS="$(TARGET_LDFLAGS)" \
+		STAGING_DIR="$(STAGING_DIR)" all
 endef
 
 define Package/$(PKG_NAME)/install

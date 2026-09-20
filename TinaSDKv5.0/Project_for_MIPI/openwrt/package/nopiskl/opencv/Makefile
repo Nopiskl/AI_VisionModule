@@ -1,106 +1,93 @@
-#
-# Copyright (C) 2013-2014 wrtnode.com
-# Copyright (C) 2015-2016 OpenWrt.org
-#
-# This is free software, licensed under the GNU General Public License v2.
-# See /LICENSE for more information.
-#
-
 include $(TOPDIR)/rules.mk
-
 PKG_NAME:=opencv
-PKG_VERSION:=4.9.0
-PKG_RELEASE:=1
-
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/opencv/opencv.git
-PKG_SOURCE_VERSION:=$(PKG_VERSION)
-PKG_MIRROR_HASH:=60ae3d790adb89b1951e9b928d369fd33655bc98540fa18a7afc31f59f63a668
-
-PKG_LICENSE:=Apache-2.0
-PKG_LICENSE_FILES:=LICENSE
-
+PKG_VERSION:=4.1.0
+PKG_RELEASE:=5
+PKG_SOURCE:=opencv-$(PKG_VERSION).zip
+PKG_EXTRA_SOURCE:=opencv_contrib-$(PKG_VERSION).zip
+ADE_SOURCE:=ade-0.1.1d.zip
+PKG_SOURCE_PROTO:=linkfile
+PKG_SOURCE_URL:=$(LICHEE_PLATFORM_DIR)/thirdparty/vision/opencv
+PKG_MD5SUM:=5c5a9ce3519415b263d512e7f6a1e2af
+PKG_HASH:=2c75b129da2e2c8728d168b7bf14ceca2da0ebe938557b109bae6742855ede13
+PKG_BUILD_DIR:=$(BUILD_DIR)/opencv-$(PKG_VERSION)
+PKG_INSTALL:=1
 PKG_BUILD_PARALLEL:=1
-
-QUILT:=1
-
+PKG_LICENSE:=BSD-3-Clause
+PKG_CONFIG_DEPENDS:=CONFIG_ENABLE_SUNXIVIN_ISP
 include $(INCLUDE_DIR)/package.mk
-
-CMAKE_BINARY_SUBDIR:=build
-CMAKE_INSTALL:=1
-
-CMAKE_OPTIONS += \
-	-DWITH_GTK=OFF \
-	-DWITH_TIFF=OFF \
-	-DWITH_QT=OFF \
-	-DWITH_GSTREAMER=OFF
-
-CMAKE_OPTIONS += \
-	-DBUILD_IPP_IW:BOOL=OFF \
-	-DBUILD_ITT:BOOL=OFF \
-	-DBUILD_JAVA:BOOL=OFF \
-	-DBUILD_PERF_TESTS:BOOL=OFF \
-	-DBUILD_TESTS:BOOL=OFF
-
-# opencv modules
-CMAKE_OPTIONS += \
-	-DBUILD_opencv_apps:BOOL=OFF \
-	-DBUILD_opencv_calib3d:BOOL=OFF \
-	-DBUILD_opencv_features2d:BOOL=OFF \
-	-DBUILD_opencv_flann:BOOL=OFF \
-	-DBUILD_opencv_gapi:BOOL=OFF \
-	-DBUILD_opencv_java_bindings_gen:BOOL=OFF \
-	-DBUILD_opencv_js_bindings_gener:BOOL=OFF \
-	-DBUILD_opencv_objc_bindings_gen:BOOL=OFF \
-	-DBUILD_opencv_objdetect:BOOL=OFF \
-	-DBUILD_opencv_photo:BOOL=OFF \
-	-DBUILD_opencv_python3:BOOL=OFF \
-	-DBUILD_opencv_python_bindings_g:BOOL=OFF \
-	-DBUILD_opencv_python_tests:BOOL=OFF \
-	-DBUILD_opencv_stitching:BOOL=OFF \
-	-DBUILD_opencv_ts:BOOL=OFF \
-	-DBUILD_opencv_video:BOOL=OFF \
-	-DBUILD_opencv_highgui:BOOL=OFF \
-	-DBUILD_opencv_videoio:BOOL=ON \
-	-DBUILD_opencv_dnn:BOOL=ON
-
-ifeq ($(CONFIG_ENABLE_OPENCV_PYTHON_SUPPORT),y)
-CMAKE_OPTIONS += -DPYTHON3_INCLUDE_PATH=$(STAGING_DIR)/usr/include/python3.9 \
-				-DPYTHON3_LIBRARIES=$(STAGING_DIR)/usr/lib/libpython3.9.so \
-				-DPYTHON3_NUMPY_INCLUDE_DIRS=$(TARGET_ROOTFS_DIR)/pypi/numpy-1.20.1/ipkg-install/usr/lib/python3.9/site-packages/numpy/core/include \
-				-DBUILD_opencv_python3:BOOL=ON \
-				-DBUILD_opencv_python_bindings_g:BOOL=ON 
-endif
-
-ifeq ($(CONFIG_ENABLE_SUNXI_VIN_ISP),y)
-CMAKE_OPTIONS += -DENABLE_SUNXI_VIN_ISP=ON
-else
-CMAKE_OPTIONS += -DENABLE_SUNXI_VIN_ISP=OFF
-endif
-
 include $(INCLUDE_DIR)/cmake.mk
 
-define Package/$(PKG_NAME)/config
-	source "$(SOURCE)/Config.in"
+define Download/opencv-contrib
+  FILE:=opencv_contrib-4.1.0.zip
+  URL:=$(LICHEE_PLATFORM_DIR)/thirdparty/vision/opencv
+  PROTO:=linkfile
+  MD5SUM:=3cd00bbfdebb69ad24756ccfb801ebac
+  HASH:=b4013495ac6c4dd05dcad1c90b6c731b488a1d775835175327f3c20884269715
 endef
+$(eval $(call Download,opencv-contrib))
 
-define Package/$(PKG_NAME)
+define Download/opencv-ade
+  FILE:=ade-0.1.1d.zip
+  URL:=$(LICHEE_PLATFORM_DIR)/thirdparty/vision/opencv
+  PROTO:=linkfile
+  MD5SUM:=37479d90e3a5d47f132f512b22cbe206
+  HASH:=881255f64d77741b5707b41379a78aa45148a202ed26333b5b474db667db05e5
+endef
+$(eval $(call Download,opencv-ade))
+
+CMAKE_SOURCE_DIR:=$(PKG_BUILD_DIR)/opencv_build
+# TinyVision offline patches resolve ADE/downloads from the package build root.
+CMAKE_BINARY_SUBDIR:=
+CMAKE_OPTIONS += \
+ -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_SKIP_RPATH=ON \
+ -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+ -DBUILD_LIST=core,dnn,imgcodecs,imgproc,ml,videoio \
+ -DOPENCV_EXTRA_MODULES_PATH=$(PKG_BUILD_DIR)/opencv_contrib-4.1.0/modules \
+ -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_opencv_apps=OFF \
+ -DBUILD_JAVA=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
+ -DWITH_QT=OFF -DWITH_GTK=OFF -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF \
+ -DWITH_OPENCL=OFF -DWITH_IPP=OFF -DWITH_ITT=OFF -DWITH_TIFF=OFF \
+ -DWITH_OPENEXR=OFF -DWITH_WEBP=OFF -DWITH_OPENJPEG=OFF \
+ -DENABLE_PRECOMPILED_HEADERS=OFF -DCV_TRACE=OFF -DOPENCV_ENABLE_NONFREE=OFF \
+ -DWITH_V4L=ON
+
+ifeq ($(CONFIG_ENABLE_SUNXIVIN_ISP),y)
+CMAKE_OPTIONS += -DENABLE_SUNXIVINISP=ON -DWITH_VINISP=ON -DSUNXI_ISP_API_ROOT=$(STAGING_DIR)/usr
+else
+CMAKE_OPTIONS += -DENABLE_SUNXIVINISP=OFF -DWITH_VINISP=OFF
+endif
+define Package/opencv
   SECTION:=libs
-  CATEGORY:=AlgorithmsLibraries
-  TITLE:=OpenCV
-  DEPENDS:=+libpthread +librt +libatomic +libstdcpp +zlib +libjpeg +libpng +libwebp +ENABLE_SUNXI_VIN_ISP:libAWIspApi +ENABLE_OPENCV_PYTHON_SUPPORT:python3-numpy
-  URL:=https://opencv.org/
+  CATEGORY:=nopiskl_apps
+  SUBMENU:=add_patch
+  TITLE:=OpenCV 4.1.0 with current-SDK VIN adaptation
+  MENU:=1
+  DEPENDS:=+libstdcpp +libpthread +librt +libatomic +libpng +libjpeg-turbo +zlib +ENABLE_SUNXIVIN_ISP:libAWIspApi
 endef
-
-define Package/$(PKG_NAME)/description
-  OpenCV is the world's biggest computer vision library.
-  It's open source, contains over 2500 algorithms and
-  is operated by the non-profit Open Source Vision Foundation.
+define Package/opencv/config
+  if PACKAGE_opencv
+    config ENABLE_SUNXIVIN_ISP
+      bool "Enable sunxi VIN / AW ISP adapter"
+      default y
+  endif
 endef
-
-define Package/$(PKG_NAME)/install
-	$(INSTALL_DIR) $(1)
-	$(CP) $(PKG_INSTALL_DIR)/* $(1)/
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	unzip -q $(DL_DIR)/$(PKG_SOURCE) -d $(PKG_BUILD_DIR)
+	mv $(PKG_BUILD_DIR)/opencv-$(PKG_VERSION) $(PKG_BUILD_DIR)/opencv_build
+	unzip -q $(DL_DIR)/$(PKG_EXTRA_SOURCE) -d $(PKG_BUILD_DIR)
+	mkdir -p $(PKG_BUILD_DIR)/3rdparty/ade
+	unzip -q $(DL_DIR)/$(ADE_SOURCE) -d $(PKG_BUILD_DIR)/3rdparty/ade
+	$(Build/Patch)
+endef
+define Build/InstallDev
+	$(INSTALL_DIR) $(1)/usr/include $(1)/usr/lib
+	$(CP) $(PKG_INSTALL_DIR)/usr/include/. $(1)/usr/include/
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/. $(1)/usr/lib/
+endef
+define Package/opencv/install
+	$(INSTALL_DIR) $(1)/usr/lib
+	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libopencv_*.so* $(1)/usr/lib/
 endef
 
 $(eval $(call BuildPackage,opencv))

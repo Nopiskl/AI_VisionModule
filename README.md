@@ -1,113 +1,178 @@
-# V851S BSP Build and Development Guide
+# V851S AI Vision Module
 
 Language: **English** | [中文](README_CN.md)
 
-This repository contains a BSP project for the **Allwinner V851S** platform, including board-level configuration, driver patches, OpenWrt/TinaTarget adaptation, AI camera application examples, and MPP / OpenCV / V4L2 development references.
+This repository contains the current board-validated application delivery,
+hardware projects, and Tina/OpenWrt adaptation materials for an AI camera and
+edge-vision module based on the Allwinner V851S/V85x platform.
 
-The program can run on Lizard-compatible boards. If you have the development board, you can also test this project directly on the hardware.
-
-> The main Application program is still under active iteration and is not open source at the moment. This repository keeps the BSP, board-side examples, MPP demos, and external modules to support firmware builds, feature verification, and secondary development.
-
-| Qt UI Preview | DVP Hardware Project |
-| --- | --- |
-| <img src="Application/1.png" alt="Qt UI preview" width="100%"> | <img src="Hardware/Project_for_DVP/2.png" alt="DVP hardware project" width="100%"> |
+> **Current application root:** [`APP/`](APP/README.md). The former top-level
+> `Application/` tree has been retired. Source code, the standalone development
+> environment, installed ARM artifacts, runtime scripts, and application
+> documentation now live together under `APP/`.
 
 <p align="center">
-  <img src="Hardware/Project_for_MIPI/1.png" alt="DVP PCB render preview" width="520">
+  <img src="Image/MainUI.png" alt="AI Vision Module main mode selector" width="900">
 </p>
 
-## Board-Level Configurations
+## Project Highlights
 
-This repository keeps two board-level hardware and BSP package sets. Both BSP packages expose the board target as **nopiskl**.
+The application uses Qt 5.12.9 for the user interface and separates media and
+AI work into three processes. The source tree provides Camera, Album, RTSP,
+UVC output, OpenCV capture, and VIPLite YOLO integration paths.
 
-| Version | Hardware Files | BSP Overlay | Advantages | Notes |
-| --- | --- | --- | --- | --- |
-| DVP | `Hardware/Project_for_DVP` | `TinaSDKv5.0/Project_for_DVP` | Uses a mainline-style LCD driver and a DVP camera. ISP setup is not required, so bring-up and debugging are simpler. | MPP has not been fully tested on this route. It is recommended to use the OpenCV path of the main program first. |
-| MIPI | `Hardware/Project_for_MIPI` | `TinaSDKv5.0/Project_for_MIPI` | Supports the full main Application feature set, LCD hardware acceleration, and AI_ISP. It is compatible with both the OpenCV path and the MPP path. | The development cycle is longer and it depends more heavily on the vendor SDK stack. |
-
-## Project Features
-
-The Application uses **Qt** as the UI management framework and is designed for AI sport camera scenarios. It covers core capabilities such as photo capture, video recording, real-time YOLO detection, and RTSP streaming.
-
-| Capability | Description |
+| Area | Current implementation |
 | --- | --- |
-| Graphical UI | Builds the main interface with Qt and manages photo capture, video recording, preview, and interaction flows. |
-| AI Detection | Supports real-time YOLO detection, including both an MPP hardware-accelerated path and a native OpenCV capture path. |
-| Video Processing | Integrates the Allwinner MPP pipeline to improve frame processing, encoding, and data transfer efficiency. |
-| Network Streaming | Supports RTSP streaming for remote preview and video pipeline debugging. |
-| Development Examples | Provides OpenCV / V4L2 / ISP / MPP examples for easier understanding and migration. |
+| User interface | 800×480 Qt Widgets UI running on a 480×800 framebuffer through `linuxfb` rotation |
+| Camera | MPP preview, JPEG snapshot, H.264/MP4 recording, and optional RTSP output |
+| Album | Qt image display and MPP DEMUX/VDEC/VO video playback |
+| UVC | USB camera output path using an already configured system UVC gadget |
+| AI/OpenCV | OpenCV/V4L2 capture and a separate VIPLite YOLO worker |
+| Resource ownership | MPP and YOLO are mutually exclusive; Qt UI and MPP video use different DISP2 layers |
+| Deployment | Self-contained cross-development tree in `APP/sdk-dev` and staged ARM output in `APP/install` |
 
-## Main Application
+The repository includes results from real-board development, but the evidence
+is feature-specific. See
+[`APP/Application/docs/STATUS.md`](APP/Application/docs/STATUS.md) for the exact
+tested board baseline, confirmed functions, and remaining UVC, YOLO-model, and
+secondary-camera-path limitations.
 
-`Application` is the main process project for the AI sport camera. It mainly integrates the MPP processing path, the generic OpenCV / V4L2 path, and Qt UI logic.
+## UI and Board Results
 
-The Application is designed to balance ease of use and performance:
+The images below are the current design and board-side results stored in
+[`Image/`](Image/).
 
-| Path | Advantages | Suitable Scenarios |
+| Main interface on the board | Camera preview and controls | MPP/AI detection demonstration |
 | --- | --- | --- |
-| OpenCV / V4L2 | Clear structure, low migration cost, and fewer dependencies on the SoC ecosystem. | Application logic verification and fast secondary development. |
-| MPP Pipeline | Makes deeper use of the Allwinner SoC ecosystem and hardware acceleration for higher performance. | Real-time video processing, encoding and streaming, and the main AI camera pipeline. |
+| <img src="Image/MainUI-2.png" alt="Main interface running on the development board" width="100%"> | <img src="Image/camera.png" alt="Camera page running on the development board" width="100%"> | <img src="Image/yolov5_MPP.png" alt="MPP and AI detection demonstration on the development board" width="100%"> |
 
-The Application should be developed together with the MPP modules. Although the component libraries have been split out separately and no longer strictly require Docker, a Docker environment with MPP support is still recommended for full MPP feature verification.
+| Album interface | UVC interface |
+| --- | --- |
+| <img src="Image/Album.png" alt="Album photo and video playback interface" width="100%"> | <img src="Image/UVC.png" alt="UVC output interface" width="100%"> |
 
-## General Board-Side Examples
+<p align="center">
+  <img src="Image/OPENCV.png" alt="OpenCV capture result" width="780">
+</p>
 
-The MPP path is feature-complete but has a higher learning curve, so this repository also provides two board-side examples that are easier to migrate. They help demonstrate camera capture, AI inference, and OpenCV processing flows.
-
-| Module | Path | Description |
-| --- | --- | --- |
-| YOLOv8 OpenCV example | `TinaSDKv5.0/Project_for_DVP/openwrt/package/nopiskl/yolov8` or `TinaSDKv5.0/Project_for_MIPI/openwrt/package/nopiskl/yolov8` | Implements YOLOv8 detection and classification with OpenCV, without MPP. The frame rate is relatively low. It is compiled into the filesystem by default, can be run directly from the board terminal, and is also integrated into the main Application. |
-| YOLOv5 GC2053 example | `TinaSDKv5.0/Project_for_MIPI/nopiskl_external/yolov5_opencv_gc2053` | Uses the GC2053 camera and implements YOLOv5 detection through standard V4L2 + ISP APIs. This example is closer to the lower-level stack and requires some embedded development experience. |
-
-## MPP Modules
-
-MPP-related examples are located at:
+## Repository Layout
 
 ```text
-Application/mpp
+.
+├── APP/                    Current application delivery and development tree
+│   ├── Application/        Authoritative application source and CMake project
+│   ├── sdk-dev/            ARM toolchain, sysroot, Qt/OpenCV/ISP development files
+│   ├── install/            Staged ARM runtime produced by the current build
+│   ├── runtime/            Board environment and camera-start launcher
+│   ├── patches/            SDK/MPP migration records retained with the delivery
+│   ├── build.sh            Supported offline cross-build entry point
+│   └── APP_OVERVIEW.md     Application architecture and current defaults
+├── Hardware/
+│   ├── Project_for_DVP/    DVP hardware design, schematics, renders, and STEP data
+│   └── Project_for_MIPI/   MIPI hardware design, schematics, Gerber, and STEP data
+├── Image/                  UI renders and real-board photographs used by this README
+├── tools/                  Release-asset packaging and original-path restore scripts
+├── TinaSDKv4.0/            Qt/OpenCV/AWIspApi package and source inputs
+├── TinaSDKv5.0/
+│   ├── Project_for_DVP/    DVP Tina/OpenWrt board overlay and packages
+│   └── Project_for_MIPI/   MIPI Tina/OpenWrt board overlay and packages
+├── BUILD_AND_DEPLOY.md     Current build, packaging, and board deployment guide
+├── RELEASE_ASSETS.md       GitHub Release asset layout and path restoration guide
+├── README.md               English project entry
+└── README_CN.md            Chinese project entry
 ```
 
-The MPP and E907 development packages are usually obtained together with the Nopiskl's AI_SecurityRecorder release. Usage references:
+`APP/` is now the only application entry at the repository root. Paths such as
+`Application/...`, `01_APP/...`, `BUILD_README.md`, and
+`TinaSDKv5.0/qt_project` belong to older layouts and should not be used.
 
-- [MPP usage reference](https://forums.100ask.net/t/topic/3107)
-- [E907 development reference](https://forums.100ask.net/t/topic/7119)
+## Application Architecture
 
-If you want to study the integrated Application features, or improve frame rate and data transfer efficiency through the MPP pipeline, use a Docker environment with MPP support.
+| Program | Installed path | Responsibility |
+| --- | --- | --- |
+| `camera-gui` | `APP/install/usr/bin/camera-gui` | Qt UI, user interaction, backend supervision, and mode switching |
+| `camera-mpp-service` | `APP/install/usr/bin/camera-mpp-service` | Exclusive MPP ownership for preview, display, snapshot, recording, RTSP, playback, and UVC |
+| `camera-yolo-worker` | `APP/install/usr/libexec/v851s-camera/camera-yolo-worker` | OpenCV capture, VIPLite inference, and direct framebuffer output during the YOLO session |
+| `camera-start` | `APP/install/usr/bin/camera-start` | Relocatable board-side launcher for the three-program application |
 
-The software under `Application/mpp` should be copied into the MPP demo directory before use. Most of the main Application's video path, encoding path, and streaming features are strongly related to MPP.
+The GUI controls the MPP service through a local IPC protocol. The outer GUI
+supervisor stops MPP and releases the Qt framebuffer before starting YOLO; it
+recreates Qt/MPP after the YOLO worker exits. In Camera and Album sessions, Qt
+owns the UI framebuffer layer while MPP owns a separate video layer composed by
+DISP2.
 
-## Build Routes
+## Build and Deploy
 
-Choose one of the following routes according to your development target:
+The current `APP/` delivery already includes the cross toolchain, target
+sysroot, target Qt/OpenCV development files, imported MPP SDK, portable CMake,
+and a staged install tree. Building does not require moving the source into a
+Tina SDK tree and does not download dependencies.
 
-| Route | Suitable Scenarios | MPP Support | Recommendation |
-| --- | --- | --- | --- |
-| Allwinner open-source community SDK | BSP validation from a relatively clean environment. | Does not include full MPP support. | General |
-| Docker environment | Image processing, video pipeline, AI inference, and MPP acceleration development. | MPP support is preconfigured. | Recommended |
+From the repository root:
 
-If your target is the Application, MPP pipeline, real-time YOLO detection, or video encoding/decoding features, the Docker route is recommended.
+```sh
+./APP/build.sh
+```
 
-For detailed build steps, see [Build Instructions](BUILD_README.md).
+The default build directory is `APP/build`; installation is staged into
+`APP/install`. The three installed binaries are ARM EABI5 executables using the
+musl hard-float loader `/lib/ld-musl-armhf.so.1`.
 
-## Key Configuration Files
+For build overrides, runtime packaging, model placement, board configuration,
+and launch instructions, use the
+[Build and Deployment Guide](BUILD_AND_DEPLOY.md). The compact application
+overview is available in [`APP/APP_OVERVIEW.md`](APP/APP_OVERVIEW.md).
+Large build dependencies and installed products are retained as path-preserving
+GitHub Release assets; packaging and restore instructions are in
+[`RELEASE_ASSETS.md`](RELEASE_ASSETS.md).
 
-| Type | Path |
+## Current Default Board Profile
+
+The machine-readable defaults are owned by
+[`APP/Application/configs/mpp-service.conf`](APP/Application/configs/mpp-service.conf)
+and [`APP/runtime/board-env.sh`](APP/runtime/board-env.sh). The current profile
+uses:
+
+- a 480×800 physical framebuffer/VO canvas with an 800×480 logical Qt UI;
+- Qt `linuxfb` rotation of 90 degrees and the configured touchscreen transform;
+- VIPP0 at 480×800 for preview;
+- on-demand VIPP4 at 1280×720 for snapshot, record, and RTSP, which requires the
+  corresponding firmware node to be enabled;
+- RTSP defaults of `eth0`, port `8554`, stream `ch0`;
+- UVC output device `/dev/video2`;
+- media paths below `/mnt/extsd`, which must be changed when that path is not the
+  actual mounted data volume.
+
+Do not infer another board's layer handle, touchscreen node, media mount,
+camera node, or USB gadget configuration from these defaults.
+
+## Hardware and BSP Variants
+
+The hardware renders and PCB layout images from the previous README are kept
+below. Their source files remain in the corresponding hardware project
+directories.
+
+| DVP board render | DVP PCB layout |
 | --- | --- |
-| DVP board overlay | `TinaSDKv5.0/Project_for_DVP/` |
-| MIPI board overlay | `TinaSDKv5.0/Project_for_MIPI/` |
-| Device tree and board-level configuration | `device/config/chips/v851s/configs/nopiskl/board.dts` |
-| U-Boot boot environment | `device/config/chips/v851s/configs/nopiskl/env.cfg` |
-| U-Boot defconfig | `brandy/brandy-2.0/u-boot-2018/configs/sun8iw21p1_defconfig` |
-| Board-side application projects | `openwrt/package/nopiskl/` |
+| <img src="Hardware/Project_for_DVP/1.png" alt="DVP board render" width="100%"> | <img src="Hardware/Project_for_DVP/2.png" alt="DVP PCB layout" width="100%"> |
 
-> The paths without the `TinaSDKv5.0/Project_for_*` prefix are the final locations after copying one overlay into a Tina SDK root directory.
+<p align="center">
+  <img src="Hardware/Project_for_MIPI/1.png" alt="MIPI PCB layout" width="900">
+</p>
 
-## Allwinner Framework References
+| Variant | Hardware project | Tina/OpenWrt materials | Intended use |
+| --- | --- | --- | --- |
+| DVP | `Hardware/Project_for_DVP` | `TinaSDKv5.0/Project_for_DVP` | DVP camera and the simpler board bring-up path |
+| MIPI | `Hardware/Project_for_MIPI` | `TinaSDKv5.0/Project_for_MIPI` | MIPI/ISP path, full vendor media stack, and the primary integrated application route |
 
-The Allwinner platform uses its own **disp framework** for display and image processing instead of DRM, and uses the **vin framework** to manage V4L2 subdevs.
+`TinaSDKv4.0/` retains the Qt 5.12.9, OpenCV 4.1.0, and AWIspApi source/package
+inputs used by the development environment. The `TinaSDKv5.0/Project_for_*`
+directories contain board overlays and package changes, not complete standalone
+Tina SDK checkouts.
 
-The following resources are recommended for understanding the V851S media pipeline, driver structure, and Tina SDK workflow:
+## Platform References
 
 - [Tina Linux development resources](https://tina.100ask.net/)
-- [Allwinner open-source community SDK acquisition guide](https://v853.docs.aw-ol.com/study/study_3getsdktoc/)
+- [Allwinner open-source SDK acquisition guide](https://v853.docs.aw-ol.com/study/study_3getsdktoc/)
 - [Youmu PI-V851S development resources](https://forums.100ask.net/t/topic/3009)
+- [MPP usage reference](https://forums.100ask.net/t/topic/3107)
+- [E907 development reference](https://forums.100ask.net/t/topic/7119)
