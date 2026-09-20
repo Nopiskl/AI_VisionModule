@@ -75,8 +75,8 @@ Camera、相册、RTSP、UVC 输出、OpenCV 采集和 VIPLite YOLO 集成路径
 └── README_CN.md            中文项目入口
 ```
 
-`APP/` 是仓库根目录下唯一的应用入口。旧路径 `Application/...`、`01_APP/...`、
-`BUILD_README.md` 和 `TinaSDKv5.0/qt_project` 均属于旧目录布局，不应继续使用。
+`APP/` 是仓库根目录下唯一的应用入口。旧路径 `Application/...`、`01_APP/...` 和
+`TinaSDKv5.0/qt_project` 均属于旧目录布局，不应继续使用。
 
 
 ## 应用架构

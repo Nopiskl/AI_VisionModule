@@ -82,8 +82,8 @@ The images below are the current design and board-side results stored in
 ```
 
 `APP/` is now the only application entry at the repository root. Paths such as
-`Application/...`, `01_APP/...`, `BUILD_README.md`, and
-`TinaSDKv5.0/qt_project` belong to older layouts and should not be used.
+`Application/...`, `01_APP/...`, and `TinaSDKv5.0/qt_project` belong to older
+layouts and should not be used.
 
 ## Application Architecture
 
